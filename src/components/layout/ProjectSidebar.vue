@@ -473,7 +473,10 @@ const reviewComments = computed(() => {
         <span>Inspect Active Tokens</span>
       </button>
 
-      <span class="text-[10px] font-mono text-slate-400">RancangLab v1</span>
+      <div class="flex items-center gap-1.5">
+        <img src="/rl.svg" alt="RancangLab" class="h-3.5 w-auto object-contain flex-shrink-0 opacity-80" />
+        <span class="text-[10px] font-mono text-slate-400">RancangLab v1</span>
+      </div>
     </div>
   </aside>
 </template>

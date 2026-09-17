@@ -53,7 +53,8 @@ const emit = defineEmits([
   <header class="h-12 border-b border-slate-800/90 bg-slate-900/95 backdrop-blur-md px-4 flex items-center justify-between text-xs text-slate-300 z-40 select-none flex-shrink-0">
     <!-- Left: Brand + Project Title -->
     <div class="flex items-center gap-3 min-w-0">
-      <div class="flex items-center gap-1.5 cursor-pointer hover:opacity-90 transition-opacity" @click="emit('navigate', 'workspace')">
+      <div class="flex items-center gap-2.5 cursor-pointer hover:opacity-90 transition-opacity" @click="emit('navigate', 'workspace')">
+        <img src="/rl.svg" alt="RancangLab Logo" class="h-8 w-auto object-contain flex-shrink-0" />
         <span class="font-bold text-white tracking-tight text-sm">
           RancangLab
         </span>

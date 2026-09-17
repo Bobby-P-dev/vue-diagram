@@ -306,9 +306,9 @@ function handleClose() {
     <div class="w-full max-w-xl bg-white rounded-2xl shadow-2xl border border-slate-200 overflow-hidden flex flex-col max-h-[90vh]">
       <!-- Header -->
       <div class="px-5 py-3.5 border-b border-slate-100 flex items-center justify-between flex-shrink-0 bg-slate-50/70">
-        <div class="flex items-center gap-2.5">
-          <div class="w-8 h-8 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-sm shadow-xs">
-            <Sparkles class="w-4 h-4 text-white" />
+        <div class="flex items-center gap-3">
+          <div class="h-10 w-auto px-2.5 py-1 rounded-lg bg-indigo-50 border border-indigo-100 flex items-center justify-center shadow-xs">
+            <img src="/rl.svg" alt="RancangLab" class="h-8 w-auto object-contain" />
           </div>
           <div>
             <h3 class="text-sm font-bold text-slate-900 leading-snug">Buat Project Baru</h3>

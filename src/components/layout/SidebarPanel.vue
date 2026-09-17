@@ -301,10 +301,8 @@ function formatDate(dateString) {
 
     <!-- Footer Profile/Brand -->
     <div class="p-3 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-400">
-      <div class="flex items-center gap-2">
-        <div class="w-6 h-6 rounded-md bg-indigo-600/20 text-indigo-400 flex items-center justify-center font-bold text-xs border border-indigo-500/30">
-          <Sparkles class="w-3.5 h-3.5 text-indigo-400" />
-        </div>
+      <div class="flex items-center gap-1.5">
+        <img src="/rl.svg" alt="RancangLab Logo" class="h-4 w-auto object-contain flex-shrink-0 opacity-90" />
         <span class="font-medium text-slate-300">RancangLab</span>
       </div>
       <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">v1</span>
