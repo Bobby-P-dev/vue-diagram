@@ -28,7 +28,6 @@ import {
   Sliders,
 } from 'lucide-vue-next'
 import { useDiagramStore } from '../../stores/diagramStore.js'
-import { DESIGN_FOUNDATIONS } from '../../assets/foundations.js'
 
 const props = defineProps({
   isOpen: {
@@ -48,13 +47,10 @@ const store = useDiagramStore()
 // Tab state: 'ui_design' | 'diagram' | 'templates'
 const activeTab = ref('ui_design')
 
-// UI Design State (Clean & Essential)
+// UI Design State (Clean & Essential - Thin Client)
 const uiPrompt = ref('')
 const uiDevice = ref('web') // 'web' | 'mobile' | 'desktop'
-const uiThemeMode = ref('dark') // 'dark' | 'light'
-const uiFoundation = ref('ramp')
-const uiAccentColor = ref('#6366f1')
-const showAdvanced = ref(false)
+const uiOrchestrationMode = ref('crewai') // 'crewai' | 'fast'
 
 // Diagram State
 const prompt = ref('')
@@ -89,22 +85,13 @@ const UI_DEVICES = [
   },
 ]
 
-const QUICK_ACCENT_COLORS = [
-  '#6366f1', // Indigo
-  '#10b981', // Emerald
-  '#06b6d4', // Cyan
-  '#f59e0b', // Amber
-  '#f43f5e', // Rose
-  '#a855f7', // Violet
-  '#3b82f6', // Blue
-  '#0f172a', // Obsidian Dark
-]
+
 
 const QUICK_CHIPS = [
-  { icon: '💼', text: 'CRM pipeline dengan card prospek, filter status, dan deal table' },
-  { icon: '☕', text: 'POS kasir kafe resto dengan grid menu dan struk pesanan QRIS' },
-  { icon: '⚽', text: 'Platform booking lapangan futsal dengan slot jadwal sewa dan DP' },
-  { icon: '🩺', text: 'Sistem klinik dengan jadwal dokter spesialis dan antrian pasien' },
+  { icon: '🛍️', text: 'buat landing page ecommerce elegant modern' },
+  { icon: '🏛️', text: 'buat landing page brutalist untuk studio arsitektur' },
+  { icon: '🍵', text: 'buat login page minimal Japanese' },
+  { icon: '💼', text: 'buat dashboard ERP procurement professional' },
 ]
 
 const DIAGRAM_TYPES = [
@@ -240,8 +227,7 @@ watch(
       uiPrompt.value = ''
       diagramType.value = 'flowchart'
       uiDevice.value = 'web'
-      uiThemeMode.value = 'dark'
-      showAdvanced.value = false
+      uiOrchestrationMode.value = 'crewai'
       templateSearch.value = ''
       selectedCategory.value = 'All'
       templateTypeFilter.value = 'all'
@@ -257,8 +243,6 @@ function handleCreateBlank(mode = 'ui_design') {
   emit('createBlank', {
     mode,
     device: uiDevice.value,
-    themeMode: uiThemeMode.value,
-    foundation: uiFoundation.value,
   })
 }
 
@@ -266,17 +250,13 @@ function handleSubmitUiDesign() {
   if (!uiPrompt.value.trim() || props.isLoading) return
   const submittedPrompt = uiPrompt.value.trim()
   const dev = uiDevice.value
-  const thmMode = uiThemeMode.value
-  const fnd = uiFoundation.value
-  const accent = uiAccentColor.value
+  const orchMode = uiOrchestrationMode.value
   uiPrompt.value = ''
   emit('create', {
     mode: 'ui_design',
     prompt: submittedPrompt,
     device: dev,
-    themeMode: thmMode,
-    foundation: fnd,
-    accentColor: accent,
+    orchestrationMode: orchMode,
   })
 }
 
@@ -400,15 +380,55 @@ function handleClose() {
         </button>
       </div>
 
-      <!-- ==================== TAB 1: UI DESIGN CANVAS (SIMPLIFIED & CLEAN) ==================== -->
+      <!-- ==================== TAB 1: UI DESIGN CANVAS (PROMPT-FIRST THIN CLIENT) ==================== -->
       <div v-if="activeTab === 'ui_design'" class="overflow-y-auto p-5 space-y-4 flex-1">
         <form @submit.prevent="handleSubmitUiDesign" class="space-y-4">
-          <!-- Row 1: Target Device & Theme Mode -->
-          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
-            <!-- Target Device -->
+          <!-- Primary: Prompt Input -->
+          <div>
+            <div class="flex items-center justify-between mb-1.5">
+              <label class="block text-xs font-bold text-slate-800 uppercase tracking-wider">
+                Describe What You Want to Design
+              </label>
+              <button
+                v-if="uiPrompt.length > 0"
+                type="button"
+                @click="uiPrompt = ''"
+                class="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-red-500 transition-colors"
+              >
+                <Trash2 class="w-3 h-3" />
+                <span>Hapus</span>
+              </button>
+            </div>
+            <textarea
+              v-model="uiPrompt"
+              rows="4"
+              :disabled="isLoading"
+              placeholder="Contoh: buatkan landing page ecommerce yang elegant dan modern, atau buat dashboard ERP procurement professional..."
+              class="w-full rounded-xl border border-slate-300 p-3.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none leading-relaxed transition-all shadow-inner bg-white"
+            ></textarea>
+
+            <!-- Quick Suggestions Chips -->
+            <div class="mt-2 flex flex-wrap gap-1.5 items-center">
+              <span class="text-[10px] text-slate-400 font-medium">Contoh prompt:</span>
+              <button
+                v-for="(chip, idx) in QUICK_CHIPS"
+                :key="idx"
+                type="button"
+                @click="uiPrompt = chip.text"
+                class="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[11px] transition-colors border border-slate-200/80"
+              >
+                <span>{{ chip.icon }}</span>
+                <span class="truncate max-w-[240px] font-medium">{{ chip.text }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Secondary Settings: Target Viewport & Orchestration Mode -->
+          <div class="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+            <!-- Target Viewport -->
             <div>
               <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Target Device
+                Target Viewport (Preview Canvas)
               </label>
               <div class="grid grid-cols-3 gap-1.5">
                 <button
@@ -434,145 +454,45 @@ function handleClose() {
               </div>
             </div>
 
-            <!-- Mode Tampilan (Dark vs Light) -->
+            <!-- Orchestration Mode Toggle -->
             <div>
               <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider mb-1.5">
-                Mode Tampilan
+                Mode Orkestrasi AI
               </label>
               <div class="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
-                  @click="uiThemeMode = 'dark'"
+                  @click="uiOrchestrationMode = 'crewai'"
                   :class="[
-                    'flex items-center justify-center gap-2 p-3 rounded-xl border font-semibold text-xs transition-all',
-                    uiThemeMode === 'dark'
-                      ? 'border-slate-900 bg-slate-900 text-white shadow-xs ring-1 ring-slate-900/30'
-                      : 'border-slate-200 text-slate-600 bg-slate-50/40 hover:bg-slate-50'
+                    'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
+                    uiOrchestrationMode === 'crewai'
+                      ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-1 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
                   ]"
                 >
-                  <span>🌙 Dark Mode</span>
+                  <div class="flex items-center gap-1 font-bold text-xs">
+                    <Sparkles class="w-3 h-3 text-indigo-600" />
+                    <span>CrewAI</span>
+                  </div>
+                  <p class="text-[10px] text-slate-500 leading-tight">4-Agent Pipeline</p>
                 </button>
+
                 <button
                   type="button"
-                  @click="uiThemeMode = 'light'"
+                  @click="uiOrchestrationMode = 'fast_track'"
                   :class="[
-                    'flex items-center justify-center gap-2 p-3 rounded-xl border font-semibold text-xs transition-all',
-                    uiThemeMode === 'light'
-                      ? 'border-indigo-600 bg-indigo-50/80 text-indigo-900 shadow-xs ring-1 ring-indigo-500/30'
-                      : 'border-slate-200 text-slate-600 bg-slate-50/40 hover:bg-slate-50'
+                    'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
+                    uiOrchestrationMode === 'fast_track'
+                      ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-1 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
                   ]"
                 >
-                  <span>☀️ Light Mode</span>
-                </button>
-              </div>
-            </div>
-          </div>
-
-          <!-- Row 2: Prompt Kebutuhan -->
-          <div>
-            <div class="flex items-center justify-between mb-1.5">
-              <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
-                Deskripsi Kebutuhan UI / Prompt
-              </label>
-              <button
-                v-if="uiPrompt.length > 0"
-                type="button"
-                @click="uiPrompt = ''"
-                class="inline-flex items-center gap-1 text-[11px] text-slate-400 hover:text-red-500 transition-colors"
-              >
-                <Trash2 class="w-3 h-3" />
-                <span>Hapus</span>
-              </button>
-            </div>
-            <textarea
-              v-model="uiPrompt"
-              rows="3"
-              :disabled="isLoading"
-              placeholder="Contoh: Dashboard CRM deals pipeline dengan tabel prospek, kartu KPI pendapatan, dan filter status..."
-              class="w-full rounded-xl border border-slate-300 p-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none leading-relaxed transition-all shadow-inner bg-white"
-            ></textarea>
-
-            <!-- Quick Suggestions Chips -->
-            <div class="mt-2 flex flex-wrap gap-1.5 items-center">
-              <span class="text-[10px] text-slate-400 font-medium">Contoh:</span>
-              <button
-                v-for="(chip, idx) in QUICK_CHIPS"
-                :key="idx"
-                type="button"
-                @click="uiPrompt = chip.text"
-                class="inline-flex items-center gap-1 px-2 py-1 rounded-md bg-slate-100 hover:bg-indigo-50 hover:text-indigo-700 text-slate-600 text-[11px] transition-colors border border-slate-200/80"
-              >
-                <span>{{ chip.icon }}</span>
-                <span class="truncate max-w-[140px]">{{ chip.text.split(' ')[0] }} {{ chip.text.split(' ')[1] }}</span>
-              </button>
-            </div>
-          </div>
-
-          <!-- Row 3: Collapsible Advanced Settings (Optional) -->
-          <div class="border border-slate-200 rounded-xl overflow-hidden bg-slate-50/50">
-            <button
-              type="button"
-              @click="showAdvanced = !showAdvanced"
-              class="w-full px-3.5 py-2.5 flex items-center justify-between text-xs font-semibold text-slate-600 hover:text-slate-900 transition-colors"
-            >
-              <div class="flex items-center gap-1.5">
-                <Sliders class="w-3.5 h-3.5 text-slate-500" />
-                <span>Pengaturan Lanjutan (Opsional)</span>
-              </div>
-              <component :is="showAdvanced ? ChevronUp : ChevronDown" class="w-3.5 h-3.5 text-slate-400" />
-            </button>
-
-            <div v-if="showAdvanced" class="p-3.5 pt-1 space-y-3 border-t border-slate-200/70 bg-white">
-              <!-- Foundation Selection -->
-              <div>
-                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Design Foundation
-                </label>
-                <div class="grid grid-cols-3 gap-1.5">
-                  <button
-                    v-for="f in DESIGN_FOUNDATIONS"
-                    :key="f.id"
-                    type="button"
-                    @click="uiFoundation = f.id"
-                    :class="[
-                      'p-2 rounded-lg border text-left text-xs transition-all',
-                      uiFoundation === f.id
-                        ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 font-bold'
-                        : 'border-slate-200 text-slate-600 bg-slate-50/40 hover:bg-slate-50'
-                    ]"
-                  >
-                    <div class="truncate">{{ f.name }}</div>
-                    <span class="text-[9px] text-slate-400 font-mono">{{ f.tokens?.radius || '8px' }}</span>
-                  </button>
-                </div>
-              </div>
-
-              <!-- Accent Color Selection -->
-              <div>
-                <label class="block text-[10px] font-bold uppercase tracking-wider text-slate-500 mb-1.5">
-                  Warna Aksen Kustom
-                </label>
-                <div class="flex items-center gap-2">
-                  <div class="flex items-center gap-1.5">
-                    <button
-                      v-for="hex in QUICK_ACCENT_COLORS"
-                      :key="hex"
-                      type="button"
-                      @click="uiAccentColor = hex"
-                      class="w-5 h-5 rounded-full border border-slate-300 transition-transform flex items-center justify-center"
-                      :class="uiAccentColor === hex ? 'scale-110 ring-2 ring-indigo-500/40 shadow-xs' : 'hover:scale-105'"
-                      :style="{ backgroundColor: hex }"
-                    >
-                      <Check v-if="uiAccentColor === hex" class="w-2.5 h-2.5 text-white stroke-[3]" />
-                    </button>
+                  <div class="flex items-center gap-1 font-bold text-xs">
+                    <Zap class="w-3 h-3 text-amber-500" />
+                    <span>Fast Track</span>
                   </div>
-                  <input
-                    v-model="uiAccentColor"
-                    type="color"
-                    class="w-6 h-6 rounded cursor-pointer border border-slate-200 p-0 ml-1"
-                    title="Pilih warna bebas"
-                  />
-                </div>
+                  <p class="text-[10px] text-slate-500 leading-tight">&lt; 3s Single pass</p>
+                </button>
               </div>
             </div>
           </div>

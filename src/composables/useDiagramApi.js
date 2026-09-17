@@ -151,12 +151,12 @@ export function useDiagramApi() {
   async function createUiDesign({
     prompt = '',
     device = 'web',
-    theme = 'Modern Custom',
+    theme = null,
     themeMode = null,
     accentColor = null,
     customTone = null,
     templateId = null,
-    foundation = 'ramp',
+    foundation = null,
     archetype = null,
     density = null,
     productContext = null,
@@ -165,8 +165,12 @@ export function useDiagramApi() {
   } = {}) {
     const payload = {
       device,
-      theme,
-      foundation,
+    }
+    if (theme) {
+      payload.theme = theme
+    }
+    if (foundation) {
+      payload.foundation = foundation
     }
     if (themeMode) {
       payload.theme_mode = themeMode
@@ -205,7 +209,49 @@ export function useDiagramApi() {
     })
   }
 
-  async function sendUiDesignChat(projectId, prompt, foundation = null) {
+  async function createUiDesignAsync(options = {}) {
+    const {
+      prompt = '',
+      device = 'web',
+      theme = null,
+      themeMode = null,
+      accentColor = null,
+      customTone = null,
+      foundation = null,
+      archetype = null,
+      density = null,
+      productContext = null,
+      primaryUser = null,
+      primaryTask = null,
+    } = options
+
+    const payload = {
+      device,
+    }
+    if (theme) payload.theme = theme
+    if (foundation) payload.foundation = foundation
+    if (themeMode) payload.theme_mode = themeMode
+    if (accentColor) payload.accent_color = accentColor
+    if (customTone) payload.custom_tone = customTone
+    if (archetype) payload.archetype = archetype
+    if (density) payload.density = density
+    if (productContext) payload.product_context = productContext
+    if (primaryUser) payload.primary_user = primaryUser
+    if (primaryTask) payload.primary_task = primaryTask
+    if (prompt) payload.prompt = prompt.trim()
+
+    return request('/ui-design/generate/async', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async function getJobStatus(jobId) {
+    if (!jobId) throw new Error('getJobStatus: `jobId` is required')
+    return request(`/jobs/${encodeURIComponent(jobId)}`)
+  }
+
+  async function sendUiDesignChat(projectId, prompt, targetedNodeIds = [], selectedComponentId = null, target = null, selectionContext = null) {
     if (!projectId) {
       throw new Error('sendUiDesignChat: `projectId` is required')
     }
@@ -213,9 +259,25 @@ export function useDiagramApi() {
       throw new Error('sendUiDesignChat: `prompt` must be a non-empty string')
     }
 
-    const payload = { prompt: prompt.trim() }
-    if (foundation) {
-      payload.foundation = foundation
+    const payload = { 
+      prompt: prompt.trim(),
+      instruction: prompt.trim(),
+    }
+    const targets = Array.isArray(targetedNodeIds) ? [...targetedNodeIds] : []
+    if (selectedComponentId && !targets.includes(selectedComponentId)) {
+      targets.push(selectedComponentId)
+    }
+    if (targets.length > 0) {
+      payload.targeted_node_ids = targets
+    }
+    if (selectedComponentId) {
+      payload.selected_component_id = selectedComponentId
+    }
+    if (target) {
+      payload.target = target
+    }
+    if (selectionContext) {
+      payload.selection_context = selectionContext
     }
 
     return request(`/ui-design/projects/${encodeURIComponent(projectId)}/chat`, {
@@ -284,6 +346,8 @@ export function useDiagramApi() {
     getTemplates,
     getUiTemplates,
     createUiDesign,
+    createUiDesignAsync,
+    getJobStatus,
     sendUiDesignChat,
     getComments,
     addComment,

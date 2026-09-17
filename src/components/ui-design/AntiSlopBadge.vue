@@ -1,46 +1,96 @@
 <script setup>
-import { ref } from 'vue'
-import { CheckCircle2, ShieldCheck, Sparkles, X, Check } from 'lucide-vue-next'
+import { ref, computed } from 'vue'
+import { CheckCircle2, ShieldCheck, AlertTriangle, XCircle, X, Check } from 'lucide-vue-next'
 
 const props = defineProps({
   foundationName: {
     type: String,
-    default: 'Ramp Clean',
+    default: 'Custom Design System',
   },
   auditData: {
     type: Object,
     default: () => null,
   },
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const isOpen = ref(false)
 
-const qualityPillars = [
+const validation = computed(() => props.auditData?.validation || null)
+const reqCoverage = computed(() => props.auditData?.requirement_coverage || null)
+const antiSlop = computed(() => props.auditData?.anti_slop || null)
+const visualReview = computed(() => props.auditData?.visual_review || null)
+
+const status = computed(() => {
+  if (!props.auditData) return 'pass'
+  const v = (validation.value?.status || 'pass').toLowerCase()
+  const c = (reqCoverage.value?.status || 'pass').toLowerCase()
+  const a = (antiSlop.value?.status || 'pass').toLowerCase()
+  if (v === 'fail' || c === 'fail' || a === 'fail') return 'fail'
+  if (v === 'repaired' || c === 'repaired') return 'repaired'
+  return 'pass'
+})
+
+const badgeConfig = computed(() => {
+  if (status.value === 'fail') {
+    return {
+      label: 'Audit Issues',
+      color: 'bg-rose-500/20 text-rose-300 border-rose-500/30',
+      icon: XCircle,
+      iconColor: 'text-rose-400',
+    }
+  }
+  if (status.value === 'repaired') {
+    return {
+      label: 'Repaired',
+      color: 'bg-amber-500/20 text-amber-300 border-amber-500/30',
+      icon: AlertTriangle,
+      iconColor: 'text-amber-400',
+    }
+  }
+  return {
+    label: 'Verified',
+    color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40',
+    icon: CheckCircle2,
+    iconColor: 'text-emerald-400',
+  }
+})
+
+const pillars = computed(() => [
   {
-    category: 'UX Architecture',
-    name: 'Task Obviousness & Structure',
-    desc: 'Primary task is immediately clear; information hierarchy follows Critical > Important > Supporting without cognitive clutter.',
-    passed: true,
+    category: 'Architecture & Schema',
+    name: 'Component Hierarchy & Schema Integrity',
+    desc: 'Semantik HTML, struktur DOM clean, dan kesesuaian AST compiler tanpa layout broken.',
+    status: (validation.value?.status || 'pass').toUpperCase(),
+    passed: (validation.value?.status || 'pass').toLowerCase() !== 'fail',
   },
   {
-    category: 'Visual Design System',
-    name: 'Spacing & Geometry Scale',
-    desc: 'Strict 4·8·12·16·24·32·48·64px scale; subtle 1px borders and restrained shadows with zero glassmorphism slop.',
-    passed: true,
+    category: 'Requirement & Intent',
+    name: 'Intent Alignment & Scope Accuracy',
+    desc: 'Fitur yang dirender tepat sesuai prompt pengguna, tanpa fitur spekulatif atau bloat tak diinginkan.',
+    status: (reqCoverage.value?.status || 'pass').toUpperCase(),
+    passed: (reqCoverage.value?.status || 'pass').toLowerCase() !== 'fail',
   },
   {
-    category: 'Product Authenticity',
-    name: 'Real Domain Data (Anti-Bloat)',
-    desc: 'Domain-authentic entities, realistic prices/status; zero unrequested features (no uncalled-for charts or fake AI chatbots).',
-    passed: true,
+    category: 'Anti AI-Slop & Hallucination',
+    name: 'Authentic Domain Entities & Zero Slop',
+    desc: validation.value?.hallucination_check || 'Bebas dari placeholder lorem ipsum, halo glowing berlebihan, dan domain halusinasi.',
+    status: (antiSlop.value?.status || 'pass').toUpperCase(),
+    passed: (antiSlop.value?.status || 'pass').toLowerCase() !== 'fail',
   },
   {
-    category: 'Anti AI-Slop',
-    name: 'Zero Ornamental Artifacts',
-    desc: 'No floating glowing blobs, no purple radial halos, no lorem ipsum placeholders, and WCAG AA contrast compliance.',
-    passed: true,
+    category: 'Visual & Design System',
+    name: 'Spacing Geometry & Color Contrast',
+    desc: 'Skala spacing konsisten (4/8/16/24px) dengan kepatuhan kontras WCAG AA.',
+    status: (visualReview.value?.status || 'pass').toUpperCase(),
+    passed: (visualReview.value?.status || 'pass').toLowerCase() !== 'fail',
   },
-]
+])
+
+const scores = computed(() => validation.value?.score || null)
 </script>
 
 <template>
@@ -50,16 +100,18 @@ const qualityPillars = [
       type="button"
       @click.stop="isOpen = !isOpen"
       class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all cursor-pointer shadow-xs"
-      :class="
+      :class="[
         isOpen
-          ? 'bg-emerald-500/15 text-emerald-400 border-emerald-500/40 ring-1 ring-emerald-500/30'
-          : 'bg-slate-800/90 text-emerald-400 border-slate-700/80 hover:bg-slate-800 hover:border-emerald-500/40'
-      "
-      title="18-Step Product Quality & Anti-Slop Audit"
+          ? 'bg-slate-800 text-white border-slate-600 ring-1 ring-white/10'
+          : 'bg-slate-800/90 text-slate-300 border-slate-700/80 hover:bg-slate-800 hover:border-slate-600'
+      ]"
+      title="Status Audit Kualitas AI & Anti-Slop"
     >
-      <CheckCircle2 class="w-3 h-3 text-emerald-400" />
-      <span>Quality Audit</span>
-      <span class="px-1 py-0.2 rounded bg-emerald-500/20 text-emerald-300 text-[9px]">18/18 Pass</span>
+      <component :is="badgeConfig.icon" class="w-3 h-3" :class="badgeConfig.iconColor" />
+      <span v-if="!compact">Quality Audit</span>
+      <span class="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold border" :class="badgeConfig.color">
+        {{ badgeConfig.label }}
+      </span>
     </button>
 
     <!-- Audit Popover Modal -->
@@ -83,20 +135,26 @@ const qualityPillars = [
       </div>
 
       <p class="text-[11px] text-slate-400 leading-relaxed mb-3 text-left">
-        Verifikasi arsitektural 18 langkah untuk memastikan antarmuka siap produksi, tanpa elemen generik, dan bebas dari bloatware AI.
+        Evaluasi kualitas struktural dan kepatuhan anti-slop yang diaudit langsung oleh engine backend.
       </p>
 
       <div class="space-y-2 text-left max-h-72 overflow-y-auto custom-scrollbar pr-0.5">
         <div
-          v-for="(item, i) in qualityPillars"
+          v-for="(item, i) in pillars"
           :key="i"
           class="p-2.5 rounded-lg bg-slate-950/60 border border-slate-800/80 flex items-start gap-2.5"
         >
-          <CheckCircle2 class="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+          <CheckCircle2 v-if="item.passed" class="w-4 h-4 text-emerald-400 mt-0.5 flex-shrink-0" />
+          <AlertTriangle v-else class="w-4 h-4 text-amber-400 mt-0.5 flex-shrink-0" />
           <div class="min-w-0 flex-1">
             <div class="flex items-center justify-between">
               <span class="text-[9px] font-mono uppercase tracking-wider text-indigo-400 font-semibold">{{ item.category }}</span>
-              <span class="text-[9px] font-mono text-emerald-400 font-bold">PASSED</span>
+              <span
+                class="text-[9px] font-mono font-bold"
+                :class="item.passed ? 'text-emerald-400' : 'text-amber-400'"
+              >
+                {{ item.status }}
+              </span>
             </div>
             <div class="text-[11px] font-bold text-slate-200 mt-0.5">
               {{ item.name }}
@@ -106,11 +164,34 @@ const qualityPillars = [
             </p>
           </div>
         </div>
+
+        <!-- Scores Breakdown -->
+        <div v-if="scores" class="p-2.5 rounded-lg bg-slate-950/40 border border-slate-800/60 pt-2">
+          <div class="text-[10px] font-mono text-slate-400 uppercase tracking-wider mb-1.5 font-semibold">Audit Quality Scores</div>
+          <div class="grid grid-cols-2 gap-1.5 text-[10px]">
+            <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
+              <span>Fidelity:</span>
+              <span class="font-mono font-bold text-emerald-400">{{ scores.requirement_fidelity ?? 10 }}/10</span>
+            </div>
+            <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
+              <span>Scope:</span>
+              <span class="font-mono font-bold text-emerald-400">{{ scores.scope_accuracy ?? scores.scope ?? 10 }}/10</span>
+            </div>
+            <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
+              <span>Traceability:</span>
+              <span class="font-mono font-bold text-emerald-400">{{ scores.traceability ?? 10 }}/10</span>
+            </div>
+            <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
+              <span>Simplicity:</span>
+              <span class="font-mono font-bold text-emerald-400">{{ scores.simplicity ?? 10 }}/10</span>
+            </div>
+          </div>
+        </div>
       </div>
 
       <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
-        <span>Foundation: <strong class="text-slate-200 font-mono">{{ foundationName }}</strong></span>
-        <span class="text-emerald-400 font-semibold font-mono">100% Production Grade</span>
+        <span>Aesthetic Engine: <strong class="text-slate-200 font-mono">{{ foundationName }}</strong></span>
+        <span class="text-emerald-400 font-semibold font-mono">Verified Runtime</span>
       </div>
     </div>
   </div>

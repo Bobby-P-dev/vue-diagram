@@ -7,6 +7,10 @@ const props = defineProps({
     type: Array,
     default: () => [],
   },
+  compact: {
+    type: Boolean,
+    default: false,
+  },
 })
 
 const emit = defineEmits(['addComment', 'resolveComment', 'sendToAi'])
@@ -32,8 +36,8 @@ function handleResolve(id) {
   emit('resolveComment', id)
 }
 
-function handleSendToAi(text) {
-  emit('sendToAi', text)
+function handleSendToAi(comment) {
+  emit('sendToAi', { content: comment.content, target: comment.target || null })
 }
 </script>
 
@@ -52,7 +56,7 @@ function handleSendToAi(text) {
       title="Beri Masukan Desain / Review Pins"
     >
       <MessageSquare class="w-3 h-3" />
-      <span>Review</span>
+      <span v-if="!compact">Review</span>
       <span
         v-if="comments.filter(c => c.status === 'Open').length > 0"
         class="px-1 py-0.2 rounded-full bg-amber-500/30 text-amber-300 text-[9px]"
@@ -127,6 +131,11 @@ function handleSendToAi(text) {
             <span class="font-mono">{{ c.timestamp }}</span>
           </div>
 
+          <div v-if="c.target?.id" class="mb-1.5 inline-flex items-center gap-1 px-1.5 py-0.5 rounded bg-amber-500/10 border border-amber-500/30 text-amber-400 font-mono text-[9px]">
+            <span>🎯 {{ c.target.id }}</span>
+            <span class="text-slate-400 font-sans">({{ c.target.type }})</span>
+          </div>
+
           <p class="text-xs text-slate-200 leading-relaxed mb-2" :class="c.status === 'Resolved' ? 'line-through' : ''">
             {{ c.content }}
           </p>
@@ -134,12 +143,12 @@ function handleSendToAi(text) {
           <div class="flex items-center justify-between pt-1.5 border-t border-slate-800/60 text-[10px]">
             <button
               type="button"
-              @click="handleSendToAi(c.content)"
+              @click="handleSendToAi(c)"
               class="text-indigo-400 hover:text-indigo-300 flex items-center gap-1 font-medium"
-              title="Kirim catatan ini ke AI Prompt untuk diperbaiki"
+              title="Kirim catatan ini ke AI Prompt untuk diperbaiki secara targeted"
             >
               <CornerDownRight class="w-3 h-3" />
-              <span>Kirim ke AI</span>
+              <span>Apply with AI</span>
             </button>
 
             <button

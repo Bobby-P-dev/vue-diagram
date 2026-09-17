@@ -8,6 +8,7 @@ import {
   Send,
   X,
   Sparkles,
+  Target,
 } from 'lucide-vue-next'
 import { useDiagramStore } from '../../stores/diagramStore.js'
 
@@ -26,6 +27,10 @@ const chatMessagesContainer = ref(null)
 
 const messages = computed(() => store.chatHistory.value || [])
 const isGenerating = computed(() => store.isGenerating.value)
+const isChatGenerating = computed(() => store.isChatGenerating.value)
+
+const selectedTarget = computed(() => store.selectedTarget?.value)
+const selectionContext = computed(() => store.selectionContext?.value)
 
 const selectedNodesDetails = computed(() => {
   return store.selectedNodes.value.map((id) => {
@@ -42,7 +47,10 @@ const chatPlaceholder = computed(() => {
     store.activeProject.value?.project_mode === 'ui_design' ||
     store.activeProject.value?.diagram_type === 'ui_design'
   if (isUi) {
-    return "Minta AI ubah UI... (misal: 'Tambahkan metric card baru', 'Ganti warna tema ke emerald')"
+    if (selectedTarget.value) {
+      return `Minta AI ubah ${selectedTarget.value.type} '${selectedTarget.value.id}'... (hanya target ini yang diubah)`
+    }
+    return "Minta AI ubah UI... (klik elemen pada preview untuk edit targeted)"
   }
   return "Ketik revisi diagram... (misal: 'Tambahkan validasi', 'Ganti alur ke DB')"
 })
@@ -56,7 +64,7 @@ function scrollToBottom() {
 }
 
 watch(
-  () => [messages.value.length, isGenerating.value],
+  () => [messages.value.length, isChatGenerating.value],
   () => {
     scrollToBottom()
   },
@@ -133,7 +141,7 @@ function formatTime(dateString) {
       class="flex-1 overflow-y-auto p-4 space-y-4 custom-scrollbar bg-slate-50/50"
     >
       <div
-        v-if="messages.length === 0 && !isGenerating"
+        v-if="messages.length === 0 && !isChatGenerating"
         class="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400"
       >
         <div class="w-12 h-12 mb-3 rounded-2xl bg-indigo-50 text-indigo-500 flex items-center justify-center text-xl shadow-inner border border-indigo-100/60">
@@ -181,7 +189,7 @@ function formatTime(dateString) {
       </div>
 
       <!-- Elegant Loading Skeleton for AI Response -->
-      <div v-if="isGenerating" class="flex flex-col items-start animate-fade-in">
+      <div v-if="isChatGenerating" class="flex flex-col items-start animate-fade-in">
         <div class="max-w-[92%] bg-gradient-to-br from-white via-slate-50 to-indigo-50/30 rounded-2xl rounded-tl-none p-4 border border-indigo-100 shadow-sm space-y-3 relative overflow-hidden">
           <!-- Top Shimmer Bar -->
           <div class="absolute top-0 left-0 right-0 h-0.5 bg-gradient-to-r from-indigo-500 via-pink-500 to-cyan-400 animate-pulse"></div>
@@ -246,6 +254,37 @@ function formatTime(dateString) {
         class="text-[11px] text-indigo-500 hover:text-indigo-700 ml-auto underline"
       >
         Clear all
+      </button>
+    </div>
+
+    <!-- Targeted UI Element / Section Badge Container (Above Input Box) -->
+    <div
+      v-if="selectedTarget"
+      class="px-3.5 py-2 bg-amber-50 border-t border-amber-200 flex items-center justify-between gap-2 transition-all shadow-xs"
+    >
+      <div class="flex items-center gap-1.5 min-w-0">
+        <span class="w-2 h-2 rounded-full bg-amber-500 animate-pulse flex-shrink-0"></span>
+        <span class="text-xs font-semibold text-amber-800 flex items-center gap-1 flex-shrink-0">
+          <Target class="w-3.5 h-3.5 text-amber-600" />
+          <span>Target:</span>
+        </span>
+        <span class="inline-flex items-center gap-1 bg-white border border-amber-300 text-amber-900 text-xs px-2 py-0.5 rounded-md font-mono font-medium shadow-xs truncate">
+          {{ selectedTarget.id }}
+          <span class="text-[10px] text-amber-600 uppercase font-sans font-semibold">({{ selectedTarget.type }})</span>
+        </span>
+        <span v-if="selectionContext?.text" class="text-[11px] text-slate-500 truncate max-w-[110px] italic hidden sm:inline">
+          "{{ selectionContext.text }}"
+        </span>
+      </div>
+
+      <button
+        type="button"
+        @click="store.clearSelectedTarget"
+        class="text-amber-700 hover:text-red-600 text-xs flex items-center gap-0.5 px-1.5 py-0.5 rounded hover:bg-amber-100 transition-colors flex-shrink-0 font-medium"
+        title="Batalkan target (edit seluruh halaman / global)"
+      >
+        <X class="w-3 h-3" />
+        <span class="text-[10px]">Batal</span>
       </button>
     </div>
 

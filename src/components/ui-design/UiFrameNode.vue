@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Handle, Position } from '@vue-flow/core'
 import {
   Lock,
@@ -9,6 +9,7 @@ import {
   Copy,
   Check,
   Smartphone,
+  Tablet,
   Monitor,
   Globe,
   Maximize2,
@@ -19,6 +20,12 @@ import {
   AlertCircle,
   ArrowRight,
   Box,
+  MousePointer2,
+  MessageSquare,
+  Navigation2,
+  ChevronRight,
+  X,
+  Target,
 } from 'lucide-vue-next'
 
 import UiNavbarSection from './sections/UiNavbarSection.vue'
@@ -37,6 +44,7 @@ import UiPricingSection from './sections/UiPricingSection.vue'
 
 import AntiSlopBadge from './AntiSlopBadge.vue'
 import ReviewCommentPin from './ReviewCommentPin.vue'
+import ArtifactPreview from './ArtifactPreview.vue'
 import { useDiagramStore } from '../../stores/diagramStore.js'
 import { useDiagramApi } from '../../composables/useDiagramApi.js'
 
@@ -54,11 +62,83 @@ const props = defineProps({
 const store = useDiagramStore()
 const api = useDiagramApi()
 
+// Canvas Edit Modes — read from global store so AiWorkspacePanel / DevDebugPanel can also read/write
+const canvasMode = store.canvasMode
+
+// Iframe ref — for postMessage mode changes to the sandbox
+const sandboxIframe = ref(null)
+const navInterceptLog = ref([]) // tracks RANCANGLAB_PREVIEW_NAVIGATE events for debug
+
 const device = computed(() => String(props.data?.canvas?.device || props.data?.device || 'web').toLowerCase())
 const title = computed(() => props.data?.canvas?.title || props.data?.title || 'UI Design Frame')
 const width = computed(() => Number(props.data?.canvas?.width || props.data?.width) || (device.value === 'mobile' ? 375 : 1024))
 const height = computed(() => Number(props.data?.canvas?.height || props.data?.height) || (device.value === 'mobile' ? 812 : 720))
-const theme = computed(() => props.data?.design_state?.design_spec?.visual?.theme || props.data?.theme || { mode: 'dark', primary: '#6366f1' })
+
+const activeViewport = ref(device.value === 'mobile' ? 'mobile' : 'web')
+watch(() => device.value, (d) => {
+  activeViewport.value = d === 'mobile' ? 'mobile' : 'web'
+})
+
+const effectiveWidth = computed(() => {
+  if (activeViewport.value === 'mobile') return 375
+  if (activeViewport.value === 'tablet') return 768
+  return Number(props.data?.canvas?.width || props.data?.width) || (device.value === 'desktop' ? 1100 : 1024)
+})
+
+const effectiveHeight = computed(() => {
+  if (activeViewport.value === 'mobile') return 812
+  if (activeViewport.value === 'tablet') return 840
+  return Number(props.data?.canvas?.height || props.data?.height) || (device.value === 'desktop' ? 740 : 720)
+})
+
+function setViewportPreview(v) {
+  activeViewport.value = v
+}
+
+function setCanvasMode(mode) {
+  store.setCanvasMode(mode)
+  // Notify iframe sandbox about mode change
+  const iframeEl = sandboxIframe.value
+  if (iframeEl?.contentWindow) {
+    iframeEl.contentWindow.postMessage({ type: 'RANCANGLAB_SET_MODE', mode }, '*')
+  }
+}
+
+function handleWindowMessage(e) {
+  // Element selection — only process in edit/comment mode
+  if (e.data?.type === 'UI_COMPONENT_CLICKED' && e.data?.componentId) {
+    if (canvasMode.value === 'edit' || canvasMode.value === 'comment') {
+      store.setSelectedComponent(e.data.componentId)
+    }
+  }
+  if (e.data?.type === 'UI_ELEMENT_SELECTED' && e.data?.target) {
+    if (canvasMode.value === 'edit' || canvasMode.value === 'comment') {
+      store.setSelectedTarget(e.data.target, e.data.context)
+    }
+  }
+  if (e.data?.type === 'RANCANGLAB_IFRAME_READY') {
+    const iframeEl = sandboxIframe.value
+    if (iframeEl?.contentWindow) {
+      iframeEl.contentWindow.postMessage({ type: 'RANCANGLAB_SET_MODE', mode: canvasMode.value }, '*')
+    }
+  }
+  if (e.data?.type === 'RANCANGLAB_PREVIEW_NAVIGATE') {
+    const entry = { href: e.data?.href, time: new Date().toLocaleTimeString() }
+    navInterceptLog.value.unshift(entry)
+    if (navInterceptLog.value.length > 10) navInterceptLog.value.length = 10
+    console.log('[UiFrameNode] Intercepted navigation attempt inside preview iframe:', e.data?.href)
+  }
+}
+
+// Watch canvasMode and propagate to iframe (needed when iframe is already loaded)
+watch(canvasMode, (mode) => {
+  const iframeEl = sandboxIframe.value
+  if (iframeEl?.contentWindow) {
+    iframeEl.contentWindow.postMessage({ type: 'RANCANGLAB_SET_MODE', mode }, '*')
+  }
+})
+
+const theme = computed(() => props.data?.design_state?.design_spec?.visual?.theme || props.data?.theme || null)
 const sections = computed(() => props.data?.design_state?.design_spec?.sections || props.data?.sections || [])
 const codeExport = computed(() => {
   if (props.data?.implementation?.source) {
@@ -75,15 +155,49 @@ const validation = computed(() => props.data?.audit?.validation || props.data?.v
 const auditState = computed(() => props.data?.audit || null)
 const changePlan = computed(() => props.data?.change_plan || null)
 
-// Canonical single source of truth for HTML: implementation.source.html -> code_export.html -> rawHtml
+// Canonical single source of truth for HTML: raw_html -> rawHtml -> code_export.html -> implementation.source.html
 const rawHtml = computed(() => {
   return (
-    props.data?.implementation?.source?.html ||
-    props.data?.code_export?.html ||
-    props.data?.rawHtml ||
     props.data?.raw_html ||
+    props.data?.rawHtml ||
+    props.data?.code_export?.html ||
+    props.data?.implementation?.source?.html ||
     props.data?.custom_markup ||
     ''
+  )
+})
+
+const artifactData = computed(() => {
+  return {
+    id: props.id,
+    title: title.value,
+    device: device.value,
+    theme: theme.value,
+    sections: sections.value,
+    raw_html: rawHtml.value,
+    rawHtml: rawHtml.value,
+    code_export: codeExport.value,
+    implementation: props.data?.implementation || {
+      framework: 'vue',
+      styling: 'tailwind',
+      source: { html: rawHtml.value },
+    },
+    design_spec: props.data?.design_state?.design_spec || {
+      sections: sections.value,
+      theme: theme.value,
+      page: pageSpec.value,
+    },
+    page_spec: pageSpec.value,
+  }
+})
+
+const artifactVersion = computed(() => {
+  return (
+    props.data?.version ||
+    props.data?.implementation?.version ||
+    store.activeProject.value?.version_number ||
+    store.activeProject.value?.version ||
+    1
   )
 })
 
@@ -97,7 +211,8 @@ const reviewComments = ref([
 ])
 
 onMounted(async () => {
-  const currentProjectId = store.activeProject?.id
+  window.addEventListener('message', handleWindowMessage)
+  const currentProjectId = store.activeProject.value?.id || store.activeProject?.id
   if (currentProjectId) {
     try {
       const serverComments = await api.getComments(currentProjectId)
@@ -109,7 +224,8 @@ onMounted(async () => {
             author: c.author,
             content: c.content,
             timestamp: new Date(c.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
-            status: c.status === 'resolved' ? 'Resolved' : 'Open'
+            status: c.status === 'resolved' ? 'Resolved' : 'Open',
+            target: c.metadata?.target || null,
           }))
         }
       }
@@ -119,9 +235,18 @@ onMounted(async () => {
   }
 })
 
+onBeforeUnmount(() => {
+  window.removeEventListener('message', handleWindowMessage)
+})
+
 async function handleAddComment(comment) {
+  const activeTarget = store.selectedTarget?.value
+  if (activeTarget && !comment.target) {
+    comment.target = activeTarget
+  }
+
   reviewComments.value.unshift(comment)
-  const currentProjectId = store.activeProject?.id
+  const currentProjectId = store.activeProject.value?.id || store.activeProject?.id
   if (currentProjectId) {
     try {
       const saved = await api.addComment(currentProjectId, {
@@ -130,6 +255,7 @@ async function handleAddComment(comment) {
         content: comment.content,
         position_x: 0,
         position_y: 0,
+        metadata: comment.target ? { target: comment.target } : {},
       })
       if (saved?.id) {
         comment.id = saved.id
@@ -144,17 +270,21 @@ async function handleResolveComment(id) {
   const target = reviewComments.value.find(c => c.id === id)
   if (target) {
     target.status = target.status === 'Resolved' ? 'Open' : 'Resolved'
-    try {
-      await api.updateCommentStatus(id, target.status.toLowerCase())
-    } catch (err) {
-      console.error('Failed to update comment status:', err)
+    if (id && !id.startsWith('comment-')) {
+      try {
+        await api.updateCommentStatus(id, target.status.toLowerCase())
+      } catch (err) {
+        console.error('Failed to update comment status:', err)
+      }
     }
   }
 }
 
-function handleSendToAi(text) {
+function handleSendToAi(payload) {
+  const text = typeof payload === 'string' ? payload : (payload?.content || '')
+  const target = (typeof payload === 'object' && payload?.target) ? payload.target : (store.selectedTarget?.value || null)
   if (store.sendFollowUpChat) {
-    store.sendFollowUpChat(`Perbaiki desain sesuai feedback review: "${text}"`)
+    store.sendFollowUpChat(`Perbaiki desain sesuai feedback review: "${text}"`, null, target)
   }
 }
 
@@ -191,7 +321,7 @@ const displayCode = computed(() => {
     props.data?.implementation?.source?.html ||
     codeExport.value?.html ||
     rawHtml.value ||
-    `<!-- Tailwind UI Code for ${title.value} -->\n<div class="w-full bg-slate-900 text-white">\n  <!-- Sections: ${sections.value.map((s) => s.type).join(', ')} -->\n</div>`
+    `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
   )
 })
 
@@ -204,53 +334,234 @@ const sandboxDoc = computed(() => {
   if (!htmlContent && sections.value.length > 0) {
     htmlContent = `<div class="p-8 text-center text-slate-400 font-sans"><p class="text-sm">Menyiapkan kode sandbox untuk seksi: ${sections.value.map(s => s.type).join(', ')}...</p></div>`
   }
-  const isDark = theme.value?.mode === 'dark'
-  const bgColor = isDark ? '#020617' : '#f8fafc'
-  const textColor = isDark ? '#f1f5f9' : '#0f172a'
-  const primaryColor = theme.value?.primary || '#6366f1'
+
+  // Pure Thin Client: Do NOT force dark mode or arbitrary brand/primary colors.
+  // The AI Design Engine generates bespoke Tailwind classes and styling.
+  const isExplicitDark = theme.value?.mode === 'dark'
+  const customPrimary = theme.value?.primary
+
+  const tailwindThemeConfig = customPrimary
+    ? `tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {
+          colors: {
+            brand: '${customPrimary}',
+            primary: '${customPrimary}'
+          }
+        }
+      }
+    }`
+    : `tailwind.config = {
+      darkMode: 'class',
+      theme: {
+        extend: {}
+      }
+    }`
 
   return `<!DOCTYPE html>
-<html lang="en" class="${isDark ? 'dark' : ''}">
+<html lang="en"${isExplicitDark ? ' class="dark"' : ''}>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <script src="https://cdn.tailwindcss.com"><\/script>
   <script>
-    tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: '${primaryColor}',
-            primary: '${primaryColor}'
-          }
-        }
-      }
-    }
+    ${tailwindThemeConfig}
   <\/script>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
   <style>
     body {
       font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       margin: 0;
       padding: 0;
-      background-color: ${bgColor};
-      color: ${textColor};
       min-height: 100vh;
       overflow-x: hidden;
+      background-color: ${isExplicitDark ? '#020617' : 'transparent'};
+      color: ${isExplicitDark ? '#f1f5f9' : 'inherit'};
     }
     ::-webkit-scrollbar { width: 6px; height: 6px; }
     ::-webkit-scrollbar-track { background: transparent; }
     ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
     ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
-  </style>
-</head>
-<body class="${isDark ? 'dark bg-slate-950 text-slate-100' : 'bg-slate-50 text-slate-900'}">
+    /* Selectable element base styles — only visible in edit/comment mode */
+    body.rl-edit-mode [data-rl-id],
+    body.rl-comment-mode [data-rl-id] {
+      cursor: crosshair;
+      transition: outline 0.12s ease-in-out;
+    }
+    body.rl-edit-mode [data-rl-id]:hover,
+    body.rl-comment-mode [data-rl-id]:hover {
+      outline: 1.5px dashed rgba(99, 102, 241, 0.7) !important;
+      outline-offset: 2px;
+    }
+    body.rl-edit-mode [data-rl-id].rl-selected,
+    body.rl-comment-mode [data-rl-id].rl-selected {
+      outline: 2px solid #6366f1 !important;
+      outline-offset: 2px;
+    }
+    /* Edit mode badge */
+    #rl-mode-badge {
+      position: fixed;
+      top: 8px;
+      right: 8px;
+      z-index: 9999;
+      font-size: 10px;
+      font-family: monospace;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 4px;
+      pointer-events: none;
+      display: none;
+    }
+    body.rl-edit-mode #rl-mode-badge { display: block; background: rgba(99,102,241,0.9); color: white; content: 'EDIT'; }
+    body.rl-comment-mode #rl-mode-badge { display: block; background: rgba(249,115,22,0.9); color: white; }
+  <\/style>
+<\/head>
+<body class="${isExplicitDark ? 'dark' : ''}">
+  <div id="rl-mode-badge">EDIT</div>
   ${htmlContent}
-</body>
-</html>`
+  <script>
+    (function() {
+      var currentMode = 'preview'; // 'preview' | 'edit' | 'comment'
+      var activeSelected = null;
+
+      // Apply mode class to body
+      function applyMode(mode) {
+        currentMode = mode;
+        document.body.classList.remove('rl-preview-mode', 'rl-edit-mode', 'rl-comment-mode');
+        document.body.classList.add('rl-' + mode + '-mode');
+        var badge = document.getElementById('rl-mode-badge');
+        if (badge) {
+          badge.textContent = mode.toUpperCase();
+        }
+        // Clear selection when switching to preview
+        if (mode === 'preview' && activeSelected) {
+          activeSelected.classList.remove('rl-selected');
+          activeSelected = null;
+        }
+      }
+
+      // Listen for mode changes from parent
+      window.addEventListener('message', function(evt) {
+        if (evt.data && evt.data.type === 'RANCANGLAB_SET_MODE') {
+          applyMode(evt.data.mode || 'preview');
+        }
+      });
+
+      // Notify parent that iframe is ready (so parent can push current mode)
+      window.parent.postMessage({ type: 'RANCANGLAB_IFRAME_READY' }, '*');
+
+      document.addEventListener('click', function(e) {
+
+        // 1. Intercept Link Navigations (Always — prevents host app recursion)
+        var anchor = e.target.closest('a');
+        if (anchor) {
+          var href = anchor.getAttribute('href');
+          if (href) {
+            // In EDIT/COMMENT mode: completely block all navigation, select anchor element instead
+            if (currentMode === 'edit' || currentMode === 'comment') {
+              e.preventDefault();
+              e.stopPropagation();
+              // Select the anchor as a component if it has identity
+              trySelectElement(anchor, e);
+              return;
+            }
+
+            // In PREVIEW mode: allow hash scrolling, block app-recursive nav
+            e.preventDefault();
+            e.stopPropagation();
+
+            if (href.startsWith('#')) {
+              var hashTarget = document.querySelector(href);
+              if (hashTarget) {
+                hashTarget.scrollIntoView({ behavior: 'smooth' });
+              }
+              return;
+            } else if (href.startsWith('http://') || href.startsWith('https://')) {
+              window.open(href, '_blank', 'noopener,noreferrer');
+              return;
+            } else {
+              // Relative path or root '/' — notify parent, try local scroll
+              window.parent.postMessage({ type: 'RANCANGLAB_PREVIEW_NAVIGATE', href: href }, '*');
+              var cleanSlug = href.replace(/^\\/+/, '').split('?')[0].split('#')[0];
+              if (cleanSlug) {
+                var matchEl = document.getElementById(cleanSlug) || document.getElementById('sec-' + cleanSlug);
+                if (matchEl) {
+                  matchEl.scrollIntoView({ behavior: 'smooth' });
+                }
+              }
+              return;
+            }
+          }
+        }
+
+        // 2. Element & Section Selection — only in EDIT / COMMENT modes
+        if (currentMode !== 'edit' && currentMode !== 'comment') return;
+        trySelectElement(e.target, e);
+
+      }, true);
+
+      function trySelectElement(startEl, e) {
+        // Determine selectable priority: data-rl-id > data-component-id > id on meaningful elements
+        var SELECTABLE_TAGS = new Set(['section','header','footer','nav','main','article','aside','form',
+          'button','a','h1','h2','h3','h4','h5','h6','img','input','select','textarea',
+          'ul','ol','table','figure','blockquote','dialog','details','label']);
+
+        var target = startEl;
+        while (target && target !== document.body) {
+          var rlid = target.getAttribute('data-rl-id') ||
+                     target.getAttribute('data-component-id') ||
+                     (SELECTABLE_TAGS.has(target.tagName.toLowerCase()) && target.id ? target.id : null);
+
+          if (rlid) {
+            // Update visual selection
+            if (activeSelected) activeSelected.classList.remove('rl-selected');
+            target.classList.add('rl-selected');
+            activeSelected = target;
+
+            var kind = target.getAttribute('data-rl-kind') || (rlid.startsWith('sec-') ? 'section' : 'component');
+            var secEl = target.closest('[data-rl-kind="section"], [id^="sec-"]');
+            var secId = secEl ? (secEl.getAttribute('data-rl-id') || secEl.id) : null;
+
+            // Build breadcrumb path
+            var breadcrumb = [];
+            var cur = target;
+            while (cur && cur !== document.body) {
+              var cid = cur.getAttribute('data-rl-id') || cur.getAttribute('data-component-id') || (SELECTABLE_TAGS.has(cur.tagName.toLowerCase()) && cur.id ? cur.id : null);
+              if (cid && cid !== rlid) breadcrumb.unshift(cid);
+              cur = cur.parentElement;
+            }
+
+            window.parent.postMessage({
+              type: 'UI_ELEMENT_SELECTED',
+              mode: currentMode,
+              target: {
+                type: kind,
+                id: rlid,
+                section_id: secId,
+                tag: target.tagName.toLowerCase(),
+              },
+              context: {
+                tag: target.tagName.toLowerCase(),
+                text: (target.innerText || '').slice(0, 80).trim(),
+                role: target.getAttribute('role') || kind,
+                breadcrumb: breadcrumb,
+              }
+            }, '*');
+
+            window.parent.postMessage({ type: 'UI_COMPONENT_CLICKED', componentId: rlid }, '*');
+            break;
+          }
+          target = target.parentElement;
+        }
+      }
+
+    })();
+  <\/script>
+<\/body>
+<\/html>`
 })
 
 function cycleMobileViewMode() {
@@ -277,7 +588,7 @@ async function copyCode() {
 <template>
   <div
     class="relative select-text transition-shadow group"
-    :style="{ width: `${width}px` }"
+    :style="{ width: `${effectiveWidth}px` }"
   >
     <!-- Vue Flow Connection Handles (LR and TB) -->
     <Handle
@@ -293,96 +604,186 @@ async function copyCode() {
       class="!h-3 !w-3 !border-2 !border-white !bg-indigo-500 opacity-0 group-hover:opacity-100 transition-opacity z-50"
     />
 
+    <!-- Viewport Switcher Floating Quick-Action Bar (Active when previewing mobile or tablet) -->
+    <div
+      v-if="device !== 'mobile' && activeViewport !== 'web'"
+      class="absolute -top-10 left-1/2 -translate-x-1/2 flex items-center gap-2 bg-slate-900/95 border border-indigo-500/60 px-3 py-1 rounded-full shadow-2xl z-50 text-[10px] font-mono text-slate-200 whitespace-nowrap backdrop-blur-md animate-in fade-in slide-in-from-bottom-1 duration-200"
+    >
+      <span class="text-slate-300 font-semibold flex items-center gap-1">
+        <Smartphone v-if="activeViewport === 'mobile'" class="w-3.5 h-3.5 text-indigo-400" />
+        <Tablet v-else class="w-3.5 h-3.5 text-indigo-400" />
+        <span>{{ activeViewport === 'mobile' ? 'Mobile (375px)' : 'Tablet (768px)' }}</span>
+      </span>
+      <span class="text-slate-600">•</span>
+      <button
+        type="button"
+        @click.stop="setViewportPreview('web')"
+        class="px-2.5 py-0.5 rounded-full bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold transition-all flex items-center gap-1 cursor-pointer shadow-xs"
+        title="Kembalikan kanvas ke ukuran Web Desktop (1024px)"
+      >
+        <Monitor class="w-3 h-3" />
+        <span>Kembali ke Web (1024px)</span>
+      </button>
+    </div>
+
     <!-- ==================== WEB / DESKTOP BROWSER FRAME ==================== -->
     <div
       v-if="device !== 'mobile'"
-      class="rounded-2xl border border-slate-200/90 bg-slate-900 shadow-2xl overflow-hidden flex flex-col transition-all duration-300"
-      :class="theme.mode === 'dark' ? 'bg-slate-950 text-slate-100 border-slate-800' : 'bg-slate-50 text-slate-900 border-slate-300'"
-      :style="{ minHeight: `${height}px` }"
+      class="rounded-2xl border border-slate-700/80 bg-slate-900 shadow-2xl overflow-hidden flex flex-col transition-all duration-300"
+      :style="{ minHeight: `${effectiveHeight}px` }"
     >
       <!-- Browser Chrome Header Bar -->
       <div
-        class="h-10 px-4 border-b flex items-center justify-between gap-4 flex-shrink-0 select-none"
-        :class="theme.mode === 'dark' ? 'bg-slate-900 border-slate-800' : 'bg-slate-100 border-slate-200'"
+        class="h-10 px-2.5 sm:px-4 border-b border-slate-800 flex items-center justify-between gap-2 sm:gap-3 flex-shrink-0 select-none bg-slate-900 text-slate-200"
       >
-        <!-- Traffic Light Buttons -->
-        <div class="flex items-center gap-1.5">
-          <span class="w-3 h-3 rounded-full bg-[#ef4444] inline-block shadow-inner"></span>
-          <span class="w-3 h-3 rounded-full bg-[#eab308] inline-block shadow-inner"></span>
-          <span class="w-3 h-3 rounded-full bg-[#22c55e] inline-block shadow-inner"></span>
+        <!-- Left Group: Traffic Lights & Viewport Switcher (Always on Left, Never Cut Off) -->
+        <div class="flex items-center gap-2 flex-shrink-0">
+          <!-- Traffic Light Buttons -->
+          <div class="flex items-center gap-1.5">
+            <span class="w-3 h-3 rounded-full bg-[#ef4444] inline-block shadow-inner"></span>
+            <span class="w-3 h-3 rounded-full bg-[#eab308] inline-block shadow-inner"></span>
+            <span class="w-3 h-3 rounded-full bg-[#22c55e] inline-block shadow-inner"></span>
+          </div>
+
+          <!-- Viewport preview controls (Desktop, Tablet, Mobile) - Always visible on front -->
+          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60 flex-shrink-0">
+            <button
+              type="button"
+              @click.stop="setViewportPreview('web')"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="activeViewport === 'web' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Desktop Viewport (1024px)"
+            >
+              <Monitor class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              @click.stop="setViewportPreview('tablet')"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="activeViewport === 'tablet' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Tablet Viewport (768px)"
+            >
+              <Tablet class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              @click.stop="setViewportPreview('mobile')"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="activeViewport === 'mobile' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Mobile Viewport (375px)"
+            >
+              <Smartphone class="w-3 h-3" />
+            </button>
+          </div>
         </div>
 
-        <!-- URL Address Bar -->
+        <!-- Center: URL Address Bar (Visible when viewport is wide enough) -->
         <div
-          class="flex-1 max-w-md h-6 px-3 rounded-md border text-[11px] font-mono flex items-center gap-2 truncate"
-          :class="theme.mode === 'dark' ? 'bg-slate-950/70 border-slate-800 text-slate-400' : 'bg-white border-slate-200 text-slate-600 shadow-inner'"
+          v-if="effectiveWidth >= 800"
+          class="flex-1 max-w-sm h-6 px-3 rounded-md border text-[11px] font-mono flex items-center gap-2 truncate bg-slate-950/70 border-slate-800 text-slate-400"
         >
           <Lock class="w-3 h-3 text-emerald-500 flex-shrink-0" />
           <span class="truncate">https://app.{{ String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-') }}.io</span>
           <RotateCw class="w-2.5 h-2.5 ml-auto text-slate-400 opacity-60" />
         </div>
 
-        <!-- Resolution badge, Anti-Slop badge, Review Pins & View mode toggle -->
-        <div class="flex items-center gap-2">
-          <AntiSlopBadge :foundation-name="theme.palette || 'Ramp Clean'" />
+        <!-- Right Group: Badges, Review, Canvas Edit Mode, View Mode, Copy -->
+        <div class="flex items-center gap-1.5 flex-shrink-0">
+          <AntiSlopBadge :compact="effectiveWidth < 700" :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
           
           <ReviewCommentPin
+            :compact="effectiveWidth < 700"
             :comments="reviewComments"
             @add-comment="handleAddComment"
             @resolve-comment="handleResolveComment"
             @send-to-ai="handleSendToAi"
           />
 
-          <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-300 border border-slate-700/60 hidden sm:inline-block">
-            {{ width }} × {{ height }}
+          <!-- Canvas Edit Mode Switcher (PREVIEW / EDIT / COMMENT) -->
+          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60">
+            <button
+              type="button"
+              @click.stop="setCanvasMode('preview')"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              :class="canvasMode === 'preview' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Preview Mode: Navigasi dan link aktif, interaksi normal"
+            >
+              <Navigation2 class="w-3 h-3" />
+              <span v-if="effectiveWidth >= 700">Preview</span>
+            </button>
+            <button
+              type="button"
+              @click.stop="setCanvasMode('edit')"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              :class="canvasMode === 'edit' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Edit Mode: Klik komponen atau seksi untuk memilih target patch AI"
+            >
+              <MousePointer2 class="w-3 h-3" />
+              <span v-if="effectiveWidth >= 700">Edit</span>
+            </button>
+            <button
+              type="button"
+              @click.stop="setCanvasMode('comment')"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              :class="canvasMode === 'comment' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Comment Mode: Klik elemen untuk memberi komentar per komponen"
+            >
+              <MessageSquare class="w-3 h-3" />
+              <span v-if="effectiveWidth >= 700">Comment</span>
+            </button>
+          </div>
+
+          <span v-if="effectiveWidth >= 950" class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-300 border border-slate-700/60 hidden sm:inline-block">
+            {{ effectiveWidth }} × {{ effectiveHeight }}
           </span>
 
           <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60">
             <button
               type="button"
               @click.stop="viewMode = 'visual'"
-              class="px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
               :class="viewMode === 'visual' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Canvas Native Modular Vue Components"
             >
               <Eye class="w-3 h-3" />
-              <span>Canvas</span>
+              <span v-if="effectiveWidth >= 700">Canvas</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'sandbox'"
-              class="px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
               :class="viewMode === 'sandbox' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Isolated Iframe Sandbox (Zero CSS Bleed)"
             >
               <Box class="w-3 h-3" />
-              <span>Sandbox</span>
+              <span v-if="effectiveWidth >= 700">Sandbox</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'code'"
-              class="px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
               :class="viewMode === 'code' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
+              title="Lihat Kode"
             >
               <Code class="w-3 h-3" />
-              <span>Code</span>
+              <span v-if="effectiveWidth >= 700">Code</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'spec'"
-              class="px-2 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
               :class="viewMode === 'spec' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
-              title="Spesifikasi Halaman & Keputusan Desain (11-Layer Architecture)"
+              title="Spesifikasi Halaman"
             >
               <FileText class="w-3 h-3" />
-              <span>Spec</span>
+              <span v-if="effectiveWidth >= 700">Spec</span>
             </button>
           </div>
 
           <button
             type="button"
             @click.stop="copyCode"
-            class="p-1 rounded-lg border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors"
+            class="p-1 rounded-lg border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
             :title="isCopied ? 'Tersalin!' : 'Salin Kode UI'"
           >
             <Check v-if="isCopied" class="w-3.5 h-3.5 text-emerald-400" />
@@ -392,46 +793,25 @@ async function copyCode() {
       </div>
 
       <!-- Content Area -->
-      <div class="flex-1 flex flex-col overflow-y-auto">
-        <!-- Visual Sections Mode -->
-        <div v-if="viewMode === 'visual'" class="flex-1 flex flex-col">
-          <!-- Modular Sections Mode (Primary Renderer) -->
-          <template v-if="sections.length > 0">
-            <component
-              v-for="(sec, idx) in sections"
-              :key="sec.id || idx"
-              :is="SECTION_COMPONENTS[sec.type] || UiHeroSection"
-              :data="sec"
-              :theme="theme"
-            />
-          </template>
-
-          <!-- Freeform Custom Tailwind HTML Renderer (Fallback only) -->
-          <div v-else-if="rawHtml" class="w-full flex-1" v-html="rawHtml"></div>
-
-          <!-- Empty Canvas Placeholder -->
-          <div v-else class="flex-1 flex flex-col items-center justify-center p-16 text-center text-slate-500 text-xs">
-            <FileText class="w-10 h-10 text-slate-600 mb-3 opacity-40" />
-            <p class="font-semibold text-slate-300 text-sm">Kanvas UI Kosong</p>
-            <p class="text-xs text-slate-500 mt-1 max-w-sm">Ketik prompt atau deskripsi antarmuka di panel chat untuk mulai mengompilasi desain.</p>
-          </div>
+      <div class="flex-1 flex flex-col overflow-y-auto relative">
+        <!-- Visual Canvas Mode: Single Source of Visual Truth with Canvas Editor Overlay -->
+        <div v-if="viewMode === 'visual'" class="flex-1 flex flex-col min-h-[500px] relative">
+          <ArtifactPreview
+            :artifact="artifactData"
+            mode="canvas"
+            :viewport="activeViewport"
+            :version="artifactVersion"
+          />
         </div>
 
-        <!-- Isolated Sandbox Mode -->
+        <!-- Isolated Sandbox Mode: Pure Artifact Preview without Editor Overlay -->
         <div v-else-if="viewMode === 'sandbox'" class="flex-1 w-full h-full min-h-[500px] relative overflow-hidden bg-slate-950 flex flex-col">
-          <div class="h-6 px-3 bg-slate-900 border-b border-slate-800 text-[10px] font-mono text-emerald-400 flex items-center justify-between flex-shrink-0 select-none">
-            <span class="flex items-center gap-1.5">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Isolated Iframe Sandbox Runtime (Zero CSS Bleed)
-            </span>
-            <span class="text-slate-500">sandbox="allow-scripts allow-same-origin"</span>
-          </div>
-          <iframe
-            :srcdoc="sandboxDoc"
-            sandbox="allow-scripts allow-same-origin"
-            class="w-full flex-1 border-0 block bg-transparent"
-            title="Isolated Sandbox Runtime"
-          ></iframe>
+          <ArtifactPreview
+            :artifact="artifactData"
+            mode="sandbox"
+            :viewport="activeViewport"
+            :version="artifactVersion"
+          />
         </div>
 
         <!-- Spec & 3-Pillar Compiler Architecture Mode -->
@@ -801,7 +1181,7 @@ async function copyCode() {
 
       <!-- Controls Overlay on Top Right Outside Frame -->
       <div class="absolute -top-9 right-0 flex items-center gap-1.5 z-50">
-        <AntiSlopBadge :foundation-name="theme.palette || 'Raycast Keyboard'" />
+        <AntiSlopBadge :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
         <ReviewCommentPin
           :comments="reviewComments"
           @add-comment="handleAddComment"
@@ -835,45 +1215,25 @@ async function copyCode() {
       </div>
 
       <!-- Mobile Content Area -->
-      <div class="flex-1 flex flex-col pt-3 overflow-y-auto">
-        <div v-if="viewMode === 'visual'" class="flex-1 flex flex-col">
-          <!-- Modular Sections Mode (Primary Renderer) -->
-          <template v-if="sections.length > 0">
-            <component
-              v-for="(sec, idx) in sections"
-              :key="sec.id || idx"
-              :is="SECTION_COMPONENTS[sec.type] || UiHeroSection"
-              :data="sec"
-              :theme="theme"
-            />
-          </template>
-
-          <!-- Freeform Custom Tailwind HTML Renderer (Fallback only) -->
-          <div v-else-if="rawHtml" class="w-full flex-1" v-html="rawHtml"></div>
-
-          <!-- Empty Canvas Mobile Placeholder -->
-          <div v-else class="flex-1 flex flex-col items-center justify-center p-8 text-center text-slate-500 text-xs">
-            <Smartphone class="w-8 h-8 text-slate-600 mb-2 opacity-40" />
-            <p class="font-semibold text-slate-300 text-xs">Kanvas Mobile Kosong</p>
-            <p class="text-[10px] text-slate-500 mt-1 max-w-[200px]">Ketik prompt di AI Copilot untuk mengompilasi tampilan mobile.</p>
-          </div>
+      <div class="flex-1 flex flex-col pt-3 overflow-y-auto relative">
+        <!-- Mobile Visual Canvas Mode: Single Source of Visual Truth with Canvas Editor Overlay -->
+        <div v-if="viewMode === 'visual'" class="flex-1 flex flex-col min-h-[400px] relative">
+          <ArtifactPreview
+            :artifact="artifactData"
+            mode="canvas"
+            viewport="mobile"
+            :version="artifactVersion"
+          />
         </div>
 
-        <!-- Isolated Sandbox Mobile -->
+        <!-- Mobile Isolated Sandbox Mode: Pure Artifact Preview without Editor Overlay -->
         <div v-else-if="viewMode === 'sandbox'" class="flex-1 w-full h-full min-h-[400px] relative overflow-hidden bg-slate-950 flex flex-col">
-          <div class="h-5 px-2 bg-slate-900 border-b border-slate-800 text-[9px] font-mono text-emerald-400 flex items-center justify-between flex-shrink-0 select-none">
-            <span class="flex items-center gap-1">
-              <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse"></span>
-              Sandbox Iframe
-            </span>
-            <span class="text-slate-500 text-[8px]">allow-scripts</span>
-          </div>
-          <iframe
-            :srcdoc="sandboxDoc"
-            sandbox="allow-scripts allow-same-origin"
-            class="w-full flex-1 border-0 block bg-transparent"
-            title="Isolated Sandbox Runtime"
-          ></iframe>
+          <ArtifactPreview
+            :artifact="artifactData"
+            mode="sandbox"
+            viewport="mobile"
+            :version="artifactVersion"
+          />
         </div>
 
         <!-- Spec Mode Mobile (3-Pillar Compiler Architecture) -->
@@ -912,7 +1272,7 @@ async function copyCode() {
           <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
             <span class="text-[10px] font-bold text-sky-300 uppercase tracking-wider block">2. Traceability (HOW)</span>
             <div class="space-y-1 text-[10px]">
-              <div v-for="(sec, sidx) in sections" :key="sidx" class="flex justify-between items-center text-slate-300 border-b border-slate-800/60 pb-0.5">
+              <div v-for="(sec, sidx) in sections" :key="sec.id || sidx" class="flex justify-between items-center text-slate-300 border-b border-slate-800/60 pb-0.5">
                 <span class="font-mono text-white">{{ sec.type }}</span>
                 <span class="text-slate-400">{{ sec.requirement_source || 'page' }}</span>
               </div>

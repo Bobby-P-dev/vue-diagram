@@ -20,6 +20,7 @@ import {
   Loader2,
   FilePlus,
   ArrowRight,
+  BookOpen,
 } from 'lucide-vue-next'
 import TopNavbar from './components/layout/TopNavbar.vue'
 import ProjectSidebar from './components/layout/ProjectSidebar.vue'
@@ -31,6 +32,7 @@ import VersionHistoryModal from './components/ui/VersionHistoryModal.vue'
 import FoundationsCatalog from './components/ui-design/views/FoundationsCatalog.vue'
 import TemplateExplorer from './components/ui-design/views/TemplateExplorer.vue'
 import TokenInspectorModal from './components/ui-design/TokenInspectorModal.vue'
+import DevDebugPanel from './components/ui-design/DevDebugPanel.vue'
 import { DESIGN_FOUNDATIONS } from './assets/foundations.js'
 import { useDiagramStore } from './stores/diagramStore.js'
 
@@ -147,7 +149,6 @@ async function handleSelectTemplate(template) {
   if (template._kind === 'ui_design') {
     success = await store.startNewUiDesignProject({
       templateId: template.id,
-      foundation: store.activeFoundationId.value,
     })
   } else {
     success = await store.startNewProject('', template.diagram_type, template.id)
@@ -185,9 +186,8 @@ async function handleCreateProject(payload) {
     await store.startNewUiDesignProject({
       prompt: payload.prompt,
       device: payload.device,
-      themeMode: payload.themeMode,
-      accentColor: payload.accentColor,
-      foundation: payload.foundation || store.activeFoundationId.value,
+      orchestrationMode: payload.orchestrationMode || 'crewai',
+      templateId: payload.templateId,
     })
   } else {
     await store.startNewProject(
@@ -204,28 +204,26 @@ async function handleCreateBlankProject(payload) {
   await store.createBlankProject(
     payload?.mode || 'ui_design',
     payload?.device || 'web',
-    payload?.themeMode || 'dark',
   )
 }
 
+const canvasMode = ref('ui_design') // 'ui_design' | 'diagram'
 const canvasPrompt = ref('')
 const canvasDevice = ref('web')
-const canvasThemeMode = ref('dark')
+const canvasDiagramType = ref('flowchart')
 
 async function handleGenerateFromCanvas() {
   if (!canvasPrompt.value.trim() || store.isGenerating.value) return
   const text = canvasPrompt.value.trim()
   canvasPrompt.value = ''
 
-  if (isUiDesignProject.value) {
+  if (canvasMode.value === 'ui_design') {
     await store.startNewUiDesignProject({
       prompt: text,
       device: canvasDevice.value,
-      themeMode: canvasThemeMode.value,
-      foundation: store.activeFoundationId.value,
     })
   } else {
-    await store.startNewProject(text, store.activeProject.value?.diagram_type || 'flowchart')
+    await store.startNewProject(text, canvasDiagramType.value)
   }
 }
 
@@ -252,9 +250,12 @@ watch(
 
 onMounted(async () => {
   await store.loadSidebar()
-  if (store.projectsList.value && store.projectsList.value.length > 0) {
-    await store.openProject(store.projectsList.value[0].id)
-  }
+  // Start on an empty canvas with copilot chat open by default (do not auto-open random project)
+  store.activeProject.value = null
+  store.nodes.value = []
+  store.edges.value = []
+  store.chatHistory.value = []
+  isChatOpen.value = true
 })
 </script>
 
@@ -386,9 +387,47 @@ onMounted(async () => {
               :diagram-type="store.activeProject.value?.diagram_type"
             />
 
-            <!-- Loading State on Empty Canvas -->
+            <!-- CrewAI Multi-Agent Generating Overlay on Canvas -->
             <div
-              v-if="!store.hasDiagram.value && store.isGenerating.value"
+              v-if="!store.hasDiagram.value && store.asyncJob?.isJobRunning?.value"
+              class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3.5 select-none px-4"
+            >
+              <div class="w-14 h-14 rounded-2xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center border border-indigo-200/60 shadow-lg backdrop-blur-xs">
+                <Loader2 class="w-7 h-7 animate-spin text-indigo-600" />
+              </div>
+              <div class="text-center max-w-sm">
+                <div class="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-indigo-100/80 text-indigo-700 text-[11px] font-semibold mb-2">
+                  <Sparkles class="w-3 h-3 text-indigo-600" />
+                  <span>CrewAI 4-Agent Pipeline</span>
+                </div>
+                <p class="text-sm font-bold text-slate-800">
+                  {{ store.asyncJob.currentAgent?.value?.name || 'Agen AI' }} Sedang Bekerja...
+                </p>
+                <p class="text-xs text-slate-500 mt-0.5">
+                  {{ store.asyncJob.currentAgent?.value?.role || 'Menyusun rancangan antarmuka...' }}
+                </p>
+              </div>
+
+              <!-- Pipeline Progression Dots -->
+              <div class="flex items-center gap-2 mt-0.5">
+                <div
+                  v-for="(agent, idx) in store.asyncJob.AGENT_PIPELINE"
+                  :key="idx"
+                  :class="[
+                    'h-1.5 rounded-full transition-all duration-300',
+                    idx === store.asyncJob.activeAgentStepIndex?.value
+                      ? 'w-7 bg-indigo-600'
+                      : idx < store.asyncJob.activeAgentStepIndex?.value
+                      ? 'w-2 bg-emerald-500'
+                      : 'w-2 bg-slate-300'
+                  ]"
+                />
+              </div>
+            </div>
+
+            <!-- Loading State on Empty Canvas (Fast Track) -->
+            <div
+              v-else-if="!store.hasDiagram.value && store.isProjectGenerating?.value"
               class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 select-none px-4"
             >
               <div class="w-12 h-12 rounded-2xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center animate-pulse border border-indigo-200/50">
@@ -415,53 +454,78 @@ onMounted(async () => {
                   {{ store.activeProject.value?.title || 'Kanvas Kosong' }}
                 </p>
                 <p class="text-xs text-slate-500 mt-1 max-w-md">
-                  Kanvas baru siap digunakan. Ketik ide antarmuka di bawah untuk generate dengan AI, atau pilih fondasi & template.
+                  Kanvas baru siap digunakan. Ketik ide antarmuka atau alur diagram di bawah untuk generate langsung dengan AI.
                 </p>
               </div>
 
               <!-- Inline Quick Prompt Input Bar (Pointer Events Enabled) -->
-              <div class="pointer-events-auto w-full max-w-lg bg-white rounded-2xl shadow-xl border border-slate-200/90 p-2.5 space-y-2">
-                <!-- Device & Mode Switchers -->
-                <div class="flex items-center justify-between gap-2 px-1">
-                  <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-[11px] font-medium text-slate-600">
+              <div class="pointer-events-auto w-full max-w-xl bg-white rounded-2xl shadow-xl border border-slate-200/90 p-3 space-y-2.5">
+                <!-- Mode Switcher (UI Design vs Diagram) & Configuration Sub-Bar -->
+                <div class="flex items-center justify-between gap-2 px-1 border-b border-slate-100 pb-2">
+                  <!-- Mode Switcher -->
+                  <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-xs font-semibold text-slate-600">
+                    <button
+                      type="button"
+                      @click="canvasMode = 'ui_design'"
+                      :class="[
+                        'px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5',
+                        canvasMode === 'ui_design' ? 'bg-white font-bold text-indigo-700 shadow-xs' : 'hover:text-slate-900'
+                      ]"
+                    >
+                      <Palette class="w-3.5 h-3.5" />
+                      <span>UI Design</span>
+                    </button>
+                    <button
+                      type="button"
+                      @click="canvasMode = 'diagram'"
+                      :class="[
+                        'px-2.5 py-1 rounded-md transition-all flex items-center gap-1.5',
+                        canvasMode === 'diagram' ? 'bg-white font-bold text-indigo-700 shadow-xs' : 'hover:text-slate-900'
+                      ]"
+                    >
+                      <Workflow class="w-3.5 h-3.5" />
+                      <span>Diagram</span>
+                    </button>
+                  </div>
+
+                  <!-- Sub-options: Viewport for UI Design, Diagram Type for Diagram -->
+                  <div v-if="canvasMode === 'ui_design'" class="flex items-center gap-1 bg-slate-50 rounded-lg p-0.5 text-[11px] font-medium text-slate-600 border border-slate-200/60">
                     <button
                       type="button"
                       @click="canvasDevice = 'web'"
-                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'web' ? 'bg-white font-bold text-indigo-700 shadow-2xs' : 'hover:text-slate-900']"
+                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'web' ? 'bg-indigo-600 font-bold text-white shadow-2xs' : 'hover:text-slate-900']"
                     >
                       Web
                     </button>
                     <button
                       type="button"
                       @click="canvasDevice = 'mobile'"
-                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'mobile' ? 'bg-white font-bold text-indigo-700 shadow-2xs' : 'hover:text-slate-900']"
+                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'mobile' ? 'bg-indigo-600 font-bold text-white shadow-2xs' : 'hover:text-slate-900']"
                     >
                       Mobile
                     </button>
                     <button
                       type="button"
                       @click="canvasDevice = 'desktop'"
-                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'desktop' ? 'bg-white font-bold text-indigo-700 shadow-2xs' : 'hover:text-slate-900']"
+                      :class="['px-2 py-0.5 rounded transition-all', canvasDevice === 'desktop' ? 'bg-indigo-600 font-bold text-white shadow-2xs' : 'hover:text-slate-900']"
                     >
                       Desktop
                     </button>
                   </div>
 
-                  <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-[11px] font-medium text-slate-600">
-                    <button
-                      type="button"
-                      @click="canvasThemeMode = 'dark'"
-                      :class="['px-2 py-0.5 rounded transition-all', canvasThemeMode === 'dark' ? 'bg-slate-900 font-bold text-white shadow-2xs' : 'hover:text-slate-900']"
+                  <div v-else class="flex items-center gap-1.5">
+                    <span class="text-[11px] text-slate-400 font-medium hidden sm:inline">Tipe:</span>
+                    <select
+                      v-model="canvasDiagramType"
+                      class="px-2 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
                     >
-                      🌙 Dark
-                    </button>
-                    <button
-                      type="button"
-                      @click="canvasThemeMode = 'light'"
-                      :class="['px-2 py-0.5 rounded transition-all', canvasThemeMode === 'light' ? 'bg-white font-bold text-indigo-700 shadow-2xs' : 'hover:text-slate-900']"
-                    >
-                      ☀️ Light
-                    </button>
+                      <option value="flowchart">Flowchart</option>
+                      <option value="architecture">Architecture</option>
+                      <option value="sequence">Sequence Diagram</option>
+                      <option value="erd">ERD / Database</option>
+                      <option value="class">UML Class</option>
+                      <option value="state">State Machine</option>
+                    </select>
                   </div>
                 </div>
 
@@ -470,15 +534,19 @@ onMounted(async () => {
                   <input
                     v-model="canvasPrompt"
                     type="text"
-                    placeholder="Ketik ide desain antarmuka (misal: CRM deals pipeline, POS resto)..."
+                    :placeholder="
+                      canvasMode === 'ui_design'
+                        ? 'Ketik ide antarmuka (misal: CRM deals pipeline, POS resto, e-commerce)...'
+                        : 'Ketik alur atau sistem diagram (misal: Alur checkout & payment gateway, Arsitektur AWS)...'
+                    "
                     @keydown.enter="handleGenerateFromCanvas"
-                    class="flex-1 px-3 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:bg-white focus:border-indigo-500"
+                    class="flex-1 px-3.5 py-2 text-xs bg-slate-50 border border-slate-200 rounded-xl text-slate-800 placeholder-slate-400 focus:outline-hidden focus:bg-white focus:border-indigo-500"
                   />
                   <button
                     type="button"
                     @click="handleGenerateFromCanvas"
                     :disabled="!canvasPrompt.trim() || store.isGenerating.value"
-                    class="px-3.5 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 flex-shrink-0"
+                    class="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 text-white text-xs font-bold rounded-xl transition-all shadow-xs flex items-center gap-1.5 flex-shrink-0"
                   >
                     <Sparkles class="w-3.5 h-3.5" />
                     <span>Generate</span>
@@ -551,6 +619,9 @@ onMounted(async () => {
       :is-open="isVersionHistoryOpen"
       @close="isVersionHistoryOpen = false"
     />
+
+    <!-- Developer Thin Client Debug Panel -->
+    <DevDebugPanel />
 
     <!-- Error Toast Notification -->
     <transition

@@ -1,6 +1,7 @@
 import { ref, computed } from 'vue'
 import { MarkerType } from '@vue-flow/core'
 import { useDiagramApi } from '../composables/useDiagramApi.js'
+import { useAsyncJob } from '../composables/useAsyncJob.js'
 import { normalizeUIFrameNode } from '../utils/uiFrameNormalizer.js'
 
 const NODE_TYPE_MAP = {
@@ -102,14 +103,22 @@ const chatHistory = ref([])
 const nodes = ref([])
 const edges = ref([])
 const selectedNodes = ref([])
+const selectedComponentId = ref(null)
+const selectedTarget = ref(null) // { type: 'component'|'section'|'page', id: '...', section_id: '...' }
+const selectionContext = ref(null) // { tag: '...', text: '...', role: '...' }
 const currentLanes = ref([])
 const projectVersions = ref([])
 const isLoadingVersions = ref(false)
 const templatesList = ref([])
 const uiTemplatesList = ref([])
-const activeFoundationId = ref('ramp')
+const activeFoundationId = ref(null)
+const lastApiPayload = ref(null)
+const lastGeneratedArtifact = ref(null)
+const canvasMode = ref('preview') // 'preview' | 'edit' | 'comment'
 
-const isGenerating = ref(false)
+const isProjectGenerating = ref(false)
+const isChatGenerating = ref(false)
+const isGenerating = computed(() => isProjectGenerating.value || isChatGenerating.value)
 const isSidebarLoading = ref(false)
 const errorMessage = ref('')
 
@@ -119,6 +128,12 @@ const activeDiagramType = computed(() => activeProject.value?.diagram_type || 'f
 export function useDiagramStore() {
   function setActiveFoundation(id) {
     if (id) activeFoundationId.value = id
+  }
+
+  function setCanvasMode(mode) {
+    if (['preview', 'edit', 'comment'].includes(mode)) {
+      canvasMode.value = mode
+    }
   }
   const {
     createProject,
@@ -131,16 +146,26 @@ export function useDiagramStore() {
     getTemplates,
     getUiTemplates,
     createUiDesign,
+    createUiDesignAsync,
     sendUiDesignChat,
   } = useDiagramApi()
+
+  const asyncJob = useAsyncJob()
 
   function clearError() {
     errorMessage.value = ''
   }
 
   function setProjectState(projectData) {
+    lastGeneratedArtifact.value = projectData
     activeProject.value = projectData
     chatHistory.value = projectData?.messages || []
+
+    const ver = projectData?.version || projectData?.version_number || null
+    if (ver && activeProject.value) {
+      activeProject.value.version = ver
+      activeProject.value.version_number = ver
+    }
 
     const rawNodes = Array.isArray(projectData?.nodes) 
       ? projectData.nodes 
@@ -153,6 +178,14 @@ export function useDiagramStore() {
       : Array.isArray(projectData?.current_edges) 
         ? projectData.current_edges 
         : []
+
+    if (ver && rawNodes.length > 0) {
+      rawNodes.forEach((n) => {
+        if (n && n.data && !n.data.version) {
+          n.data.version = ver
+        }
+      })
+    }
 
     nodes.value = normalizeNodes(rawNodes)
     edges.value = normalizeEdges(rawEdges)
@@ -264,24 +297,25 @@ export function useDiagramStore() {
   async function openProject(id) {
     if (!id) return false
     
-    isGenerating.value = true
+    isProjectGenerating.value = true
     errorMessage.value = ''
     try {
       const data = await getProjectDetails(id)
       setProjectState(data)
       selectedNodes.value = []
+      clearSelectedTarget()
       loadProjectVersions(id)
       return true
     } catch (err) {
       errorMessage.value = err.message || 'Failed to load project details'
       return false
     } finally {
-      isGenerating.value = false
+      isProjectGenerating.value = false
     }
   }
 
-  async function createBlankProject(mode = 'ui_design', device = 'web', themeMode = 'dark') {
-    isGenerating.value = true
+  async function createBlankProject(mode = 'ui_design', device = 'web', themeMode = null) {
+    isProjectGenerating.value = true
     errorMessage.value = ''
 
     // IMMEDIATELY clean the canvas
@@ -289,6 +323,7 @@ export function useDiagramStore() {
     edges.value = []
     chatHistory.value = []
     selectedNodes.value = []
+    clearSelectedTarget()
     currentLanes.value = []
     activeProject.value = {
       id: null,
@@ -300,12 +335,13 @@ export function useDiagramStore() {
     try {
       let data
       if (mode === 'ui_design') {
-        data = await createUiDesign({
+        const payload = {
           prompt: '',
           device,
-          themeMode,
-          foundation: activeFoundationId.value || 'ramp',
-        })
+          ...(themeMode ? { themeMode } : {}),
+        }
+        lastApiPayload.value = payload
+        data = await createUiDesign(payload)
       } else {
         data = await createProject('', mode)
       }
@@ -318,12 +354,12 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Gagal membuat canvas baru'
       return false
     } finally {
-      isGenerating.value = false
+      isProjectGenerating.value = false
     }
   }
 
   async function startNewProject(prompt, diagramType = 'flowchart', templateId = null) {
-    isGenerating.value = true
+    isProjectGenerating.value = true
     errorMessage.value = ''
 
     // IMMEDIATELY reset canvas so previous project is not visible / updated in place
@@ -349,14 +385,14 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Failed to create new project'
       return false
     } finally {
-      isGenerating.value = false
+      isProjectGenerating.value = false
     }
   }
 
   async function startNewUiDesignProject({
     prompt = '',
     device = 'web',
-    theme = 'Modern Custom',
+    theme = null,
     themeMode = null,
     accentColor = null,
     customTone = null,
@@ -367,15 +403,36 @@ export function useDiagramStore() {
     productContext = null,
     primaryUser = null,
     primaryTask = null,
+    orchestrationMode = 'fast',
   } = {}) {
-    isGenerating.value = true
+    isProjectGenerating.value = true
     errorMessage.value = ''
+
+    // Record outgoing payload for Dev Debug transparency (pure thin-client check)
+    const requestPayload = {
+      prompt: prompt.trim(),
+      device,
+      orchestrationMode,
+      ...(theme ? { theme } : {}),
+      ...(themeMode ? { themeMode } : {}),
+      ...(accentColor ? { accentColor } : {}),
+      ...(customTone ? { customTone } : {}),
+      ...(templateId ? { templateId } : {}),
+      ...(foundation ? { foundation } : {}),
+      ...(archetype ? { archetype } : {}),
+      ...(density ? { density } : {}),
+      ...(productContext ? { productContext } : {}),
+      ...(primaryUser ? { primaryUser } : {}),
+      ...(primaryTask ? { primaryTask } : {}),
+    }
+    lastApiPayload.value = requestPayload
 
     // IMMEDIATELY reset canvas so previous project is not visible / updated in place
     nodes.value = []
     edges.value = []
     chatHistory.value = []
     selectedNodes.value = []
+    selectedComponentId.value = null
     currentLanes.value = []
     activeProject.value = {
       id: null,
@@ -384,9 +441,53 @@ export function useDiagramStore() {
       project_mode: 'ui_design',
     }
 
+    if (orchestrationMode === 'crewai') {
+      try {
+        const initData = await createUiDesignAsync({
+          prompt,
+          device,
+          theme,
+          themeMode,
+          accentColor,
+          customTone,
+          foundation,
+          archetype,
+          density,
+          productContext,
+          primaryUser,
+          primaryTask,
+        })
+
+        activeProject.value = {
+          id: initData.project_id,
+          title: prompt ? `Merancang (CrewAI): ${prompt.slice(0, 30)}...` : 'UI Design Baru',
+          diagram_type: 'ui_design',
+          project_mode: 'ui_design',
+        }
+
+        asyncJob.startPolling(
+          initData.job_id,
+          initData.project_id,
+          async (projId) => {
+            await openProject(projId)
+            await loadSidebar()
+            if (projId) loadProjectVersions(projId)
+            isProjectGenerating.value = false
+          },
+          (err) => {
+            errorMessage.value = err
+            isProjectGenerating.value = false
+          },
+        )
+        return true
+      } catch (err) {
+        errorMessage.value = err.message || 'Gagal memulai CrewAI job'
+        isProjectGenerating.value = false
+        return false
+      }
+    }
+
     try {
-      const chosenFoundation = foundation || activeFoundationId.value || 'ramp'
-      activeFoundationId.value = chosenFoundation
       const data = await createUiDesign({
         prompt,
         device,
@@ -395,7 +496,7 @@ export function useDiagramStore() {
         accentColor,
         customTone,
         templateId,
-        foundation: chosenFoundation,
+        foundation,
         archetype,
         density,
         productContext,
@@ -404,6 +505,7 @@ export function useDiagramStore() {
       })
       setProjectState(data)
       selectedNodes.value = []
+      selectedComponentId.value = null
       await loadSidebar()
       if (data?.id) loadProjectVersions(data.id)
       return true
@@ -411,18 +513,21 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Failed to create UI design project'
       return false
     } finally {
-      isGenerating.value = false
+      isProjectGenerating.value = false
     }
   }
 
-  async function sendFollowUpChat(prompt) {
+  async function sendFollowUpChat(prompt, componentId = null) {
     if (!activeProject.value?.id) {
       errorMessage.value = 'No active project to update'
       return false
     }
     
-    isGenerating.value = true
+    isChatGenerating.value = true
     errorMessage.value = ''
+    
+    const targetObj = selectedTarget.value || (componentId ? { type: 'component', id: componentId } : null)
+    const targetCmpId = targetObj?.id || componentId || selectedComponentId.value
     
     // Optimistic UI update for the chat
     chatHistory.value.push({
@@ -430,6 +535,8 @@ export function useDiagramStore() {
       role: 'user',
       content: prompt,
       target_node_ids: selectedNodes.value.length ? [...selectedNodes.value] : null,
+      selected_component_id: targetCmpId || null,
+      target: targetObj,
       created_at: new Date().toISOString()
     })
 
@@ -439,18 +546,19 @@ export function useDiagramStore() {
         activeProject.value?.diagram_type === 'ui_design'
 
       const data = isUiDesign
-        ? await sendUiDesignChat(activeProject.value.id, prompt, activeFoundationId.value)
+        ? await sendUiDesignChat(activeProject.value.id, prompt, selectedNodes.value, targetCmpId, targetObj, selectionContext.value)
         : await sendChat(activeProject.value.id, prompt, selectedNodes.value)
 
       setProjectState(data)
       selectedNodes.value = []
+      clearSelectedTarget()
       if (activeProject.value?.id) loadProjectVersions(activeProject.value.id)
       return true
     } catch (err) {
       errorMessage.value = err.message || 'Failed to send chat'
       return false
     } finally {
-      isGenerating.value = false
+      isChatGenerating.value = false
     }
   }
 
@@ -470,7 +578,7 @@ export function useDiagramStore() {
 
   async function rollbackToVersion(versionId) {
     if (!activeProject.value?.id || !versionId) return false
-    isGenerating.value = true
+    isProjectGenerating.value = true
     errorMessage.value = ''
     try {
       const data = await rollbackVersion(activeProject.value.id, versionId)
@@ -481,7 +589,7 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Failed to rollback version'
       return false
     } finally {
-      isGenerating.value = false
+      isProjectGenerating.value = false
     }
   }
 
@@ -520,6 +628,40 @@ export function useDiagramStore() {
     selectedNodes.value = []
   }
 
+  function setSelectedComponent(id) {
+    selectedComponentId.value = id || null
+    if (id) {
+      selectedTarget.value = {
+        type: id.startsWith('sec-') ? 'section' : 'component',
+        id: id
+      }
+    } else {
+      selectedTarget.value = null
+    }
+  }
+
+  function clearSelectedComponent() {
+    selectedComponentId.value = null
+    selectedTarget.value = null
+    selectionContext.value = null
+  }
+
+  function setSelectedTarget(target, context = null) {
+    selectedTarget.value = target || null
+    selectionContext.value = context || null
+    if (target?.id) {
+      selectedComponentId.value = target.id
+    } else {
+      selectedComponentId.value = null
+    }
+  }
+
+  function clearSelectedTarget() {
+    selectedTarget.value = null
+    selectionContext.value = null
+    selectedComponentId.value = null
+  }
+
   return {
     selectNode,
     projectsList,
@@ -531,7 +673,16 @@ export function useDiagramStore() {
     nodes,
     edges,
     selectedNodes,
+    selectedComponentId,
+    selectedTarget,
+    selectionContext,
+    setSelectedComponent,
+    clearSelectedComponent,
+    setSelectedTarget,
+    clearSelectedTarget,
     isGenerating,
+    isProjectGenerating,
+    isChatGenerating,
     isSidebarLoading,
     errorMessage,
     hasDiagram,
@@ -545,6 +696,10 @@ export function useDiagramStore() {
     
     activeFoundationId,
     setActiveFoundation,
+    canvasMode,
+    setCanvasMode,
+    lastApiPayload,
+    lastGeneratedArtifact,
     loadSidebar,
     loadMoreProjects,
     togglePin,
@@ -560,5 +715,6 @@ export function useDiagramStore() {
     toggleNodeSelection,
     clearNodeSelection,
     clearError,
+    asyncJob,
   }
 }

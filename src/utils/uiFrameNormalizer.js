@@ -28,10 +28,9 @@ export function normalizeUIFrameNode(node) {
     title: rawData.canvas?.title || rawData.title || 'UI Design Frame',
   }
 
-  // 2. DESIGN STATE (Requirement Spec + Design Spec)
   const reqSpec = rawData.design_state?.requirement_spec || rawData.requirement_spec || null
   const rawSections = rawData.design_state?.design_spec?.sections || rawData.sections || []
-  const theme = rawData.design_state?.design_spec?.visual?.theme || rawData.theme || { mode: 'dark', primary: '#6366f1' }
+  const theme = rawData.design_state?.design_spec?.visual?.theme || rawData.theme || null
 
   const designState = {
     requirement_spec: reqSpec,
@@ -61,10 +60,10 @@ export function normalizeUIFrameNode(node) {
     ''
 
   const htmlSource =
-    rawData.implementation?.source?.html ||
-    rawData.code_export?.html ||
     rawData.raw_html ||
     rawData.rawHtml ||
+    rawData.code_export?.html ||
+    rawData.implementation?.source?.html ||
     ''
 
   const implementation = {
@@ -75,7 +74,7 @@ export function normalizeUIFrameNode(node) {
       html: htmlSource,
     },
     generated_at: rawData.implementation?.generated_at || new Date().toISOString(),
-    version: rawData.implementation?.version || 1,
+    version: rawData.version || rawData.implementation?.version || 1,
   }
 
   // 4. AUDIT STATE (Evaluation only)
@@ -117,6 +116,7 @@ export function normalizeUIFrameNode(node) {
       requirement_spec: reqSpec,
       validation: audit.validation,
       anti_slop_audit: audit.anti_slop,
+      version: implementation.version,
     },
   }
 }
