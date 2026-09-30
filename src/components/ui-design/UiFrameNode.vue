@@ -314,12 +314,37 @@ const SECTION_COMPONENTS = {
   plans: UiPricingSection,
 }
 
+const activeCodeTab = ref('react') // 'react' | 'html' | 'vue'
+
 const displayCode = computed(() => {
+  const exports = props.data?.code_export || props.data?.implementation?.source || {}
+  if (activeCodeTab.value === 'react') {
+    return (
+      exports.react ||
+      exports.jsx ||
+      exports.tsx ||
+      exports.html ||
+      rawHtml.value ||
+      `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
+    )
+  }
+  if (activeCodeTab.value === 'html') {
+    return (
+      exports.html ||
+      rawHtml.value ||
+      `<!-- Belum ada kode antarmuka HTML. -->`
+    )
+  }
+  if (activeCodeTab.value === 'vue') {
+    return (
+      exports.vue ||
+      props.data?.implementation?.source?.vue ||
+      `<!-- Belum ada kode antarmuka Vue. -->`
+    )
+  }
   return (
-    props.data?.implementation?.source?.vue ||
-    codeExport.value?.vue ||
-    props.data?.implementation?.source?.html ||
-    codeExport.value?.html ||
+    exports.react ||
+    exports.html ||
     rawHtml.value ||
     `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
   )
@@ -1158,8 +1183,34 @@ async function copyCode() {
 
         <!-- Code Viewer Mode -->
         <div v-else class="p-6 bg-slate-950 text-slate-200 font-mono text-xs overflow-x-auto leading-relaxed flex-1">
-          <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800 text-slate-400 text-[11px]">
-            <span>Vue 3 / Tailwind CSS Component</span>
+          <div class="flex items-center justify-between mb-3 pb-2 border-b border-slate-800 text-slate-400 text-[11px] gap-2">
+            <!-- Framework Switcher Tabs -->
+            <div class="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-800 gap-1">
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'react'"
+                :class="activeCodeTab === 'react' ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded text-[10px] transition-all cursor-pointer"
+              >
+                React (TSX)
+              </button>
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'html'"
+                :class="activeCodeTab === 'html' ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded text-[10px] transition-all cursor-pointer"
+              >
+                HTML5
+              </button>
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'vue'"
+                :class="activeCodeTab === 'vue' ? 'bg-indigo-600 text-white shadow-xs font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2.5 py-1 rounded text-[10px] transition-all cursor-pointer"
+              >
+                Vue 3
+              </button>
+            </div>
             <span v-if="isCopied" class="text-emerald-400 font-bold">✓ Kode disalin ke clipboard</span>
           </div>
           <pre><code>{{ displayCode }}</code></pre>
@@ -1292,6 +1343,35 @@ async function copyCode() {
 
         <!-- Code Viewer Mode -->
         <div v-else class="p-4 bg-slate-950 text-slate-200 font-mono text-[11px] overflow-x-auto leading-relaxed flex-1">
+          <div class="flex items-center justify-between mb-2.5 pb-2 border-b border-slate-800 text-slate-400 text-[10px] gap-1">
+            <div class="flex items-center bg-slate-900/90 p-0.5 rounded-lg border border-slate-800 gap-1">
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'react'"
+                :class="activeCodeTab === 'react' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2 py-0.5 rounded text-[9px] transition-all cursor-pointer"
+              >
+                React
+              </button>
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'html'"
+                :class="activeCodeTab === 'html' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2 py-0.5 rounded text-[9px] transition-all cursor-pointer"
+              >
+                HTML
+              </button>
+              <button
+                type="button"
+                @click.stop="activeCodeTab = 'vue'"
+                :class="activeCodeTab === 'vue' ? 'bg-indigo-600 text-white font-bold' : 'text-slate-400 hover:text-slate-200'"
+                class="px-2 py-0.5 rounded text-[9px] transition-all cursor-pointer"
+              >
+                Vue
+              </button>
+            </div>
+            <span v-if="isCopied" class="text-emerald-400 font-bold">✓ Copied</span>
+          </div>
           <pre><code>{{ displayCode }}</code></pre>
         </div>
       </div>

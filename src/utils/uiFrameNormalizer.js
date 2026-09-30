@@ -53,7 +53,14 @@ export function normalizeUIFrameNode(node) {
     },
   }
 
-  // 3. IMPLEMENTATION (Vue + Tailwind Source Code)
+  // 3. IMPLEMENTATION (React / Vue + Tailwind Source Code)
+  const reactSource =
+    rawData.code_export?.react ||
+    rawData.code_export?.jsx ||
+    rawData.code_export?.tsx ||
+    rawData.implementation?.source?.react ||
+    ''
+
   const vueSource =
     rawData.implementation?.source?.vue ||
     rawData.code_export?.vue ||
@@ -67,9 +74,10 @@ export function normalizeUIFrameNode(node) {
     ''
 
   const implementation = {
-    framework: rawData.implementation?.framework || 'vue',
+    framework: rawData.implementation?.framework || (reactSource ? 'react' : 'vue'),
     styling: rawData.implementation?.styling || 'tailwind',
     source: {
+      react: reactSource,
       vue: vueSource,
       html: htmlSource,
     },
@@ -106,6 +114,7 @@ export function normalizeUIFrameNode(node) {
       theme: theme,
       sections: rawSections,
       code_export: {
+        react: reactSource,
         vue: vueSource,
         html: htmlSource,
       },

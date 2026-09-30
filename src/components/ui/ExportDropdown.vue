@@ -72,10 +72,11 @@ async function handleExport(format) {
       const codeList = frames.map((f, i) => {
         const title = f.data?.canvas?.title || f.data?.title || `Frame ${i + 1}`
         const code =
-          f.data?.implementation?.source?.vue ||
-          f.data?.implementation?.source?.html ||
-          f.data?.code_export?.vue ||
+          f.data?.code_export?.react ||
+          f.data?.implementation?.source?.react ||
           f.data?.code_export?.html ||
+          f.data?.code_export?.vue ||
+          f.data?.implementation?.source?.vue ||
           ''
         return `<!-- ==================== ${title} ==================== -->\n${code}`
       })
