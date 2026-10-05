@@ -4,6 +4,7 @@ import { VueFlow, useVueFlow } from '@vue-flow/core'
 import { Background, BackgroundVariant } from '@vue-flow/background'
 import { Controls } from '@vue-flow/controls'
 import { MiniMap } from '@vue-flow/minimap'
+import { Sparkles } from 'lucide-vue-next'
 import StartEndNode from '../nodes/StartEndNode.vue'
 import ProcessNode from '../nodes/ProcessNode.vue'
 import DecisionNode from '../nodes/DecisionNode.vue'
@@ -12,7 +13,7 @@ import SwimlaneLaneNode from '../nodes/SwimlaneLaneNode.vue'
 import UiFrameNode from '../ui-design/UiFrameNode.vue'
 import CanvasSearchBar from './CanvasSearchBar.vue'
 import { useGraphLayout } from '../../composables/useGraphLayout.js'
-import { useDiagramStore } from '../../stores/diagramStore.js'
+import { useDiagramStore, normalizeEdges } from '../../stores/diagramStore.js'
 
 const props = defineProps({
   nodes: {
@@ -116,10 +117,22 @@ watch(
       : []
 
     layoutedNodes.value = [...laneNodes, ...regularNodes]
-    layoutedEdges.value = [...newEdges]
+    layoutedEdges.value = normalizeEdges(newEdges)
+
+    // Jika node sebelumnya belum memiliki koordinat tersimpan (baru digenerate oleh AI),
+    // simpan koordinat awal hasil layout Dagre ke store & backend agar posisi terkunci rapi
+    const hadNoCoordinates = newNodes.some(
+      (n) => !n.position || (n.position.x === 0 && n.position.y === 0)
+    )
+    if (hadNoCoordinates && regularNodes.length > 0 && store.activeProject.value?.id) {
+      store.updateNodePositions(regularNodes)
+    }
 
     nextTick(() => {
       fitView({ padding: 0.2, duration: 600, minZoom: 0.02, maxZoom: 1.5 })
+      setTimeout(() => {
+        fitView({ padding: 0.2, duration: 300, minZoom: 0.02, maxZoom: 1.5 })
+      }, 150)
     })
   },
   { immediate: true, deep: true },
@@ -132,6 +145,55 @@ watch(
   },
   { deep: true },
 )
+
+function onNodeDragStop(e) {
+  if (e?.node && e.node.type !== 'swimlane') {
+    const target = layoutedNodes.value.find((n) => n.id === e.node.id)
+    if (target && e.node.position) {
+      target.position = { ...e.node.position }
+    }
+  }
+  const regularNodes = layoutedNodes.value.filter(
+    (n) => n.type !== 'swimlane' && !String(n.id || '').startsWith('swimlane-')
+  )
+  if (regularNodes.length > 0) {
+    store.updateNodePositions(regularNodes)
+  }
+}
+
+function handleAutoLayout() {
+  if (!props.nodes || props.nodes.length === 0) return
+  const effectiveType = String(props.diagramType || store.activeProject.value?.diagram_type || '').toLowerCase().trim()
+  const positioned = layoutGraph(props.nodes, props.edges, props.direction, effectiveType, { forceAutoLayout: true })
+  const lanes = positioned.lanes || []
+  store.setLanes(lanes)
+
+  const isSwimlane = (effectiveType === 'swimlane' || effectiveType === 'bpmn')
+  const laneNodes = isSwimlane
+    ? lanes.map((lane) => ({
+        id: `swimlane-${lane.id}`,
+        type: 'swimlane',
+        position: { x: lane.x, y: lane.y },
+        data: lane,
+        selectable: false,
+        draggable: false,
+        connectable: false,
+        zIndex: -1,
+      }))
+    : []
+
+  const regularNodes = positioned.map((node) => ({
+    ...node,
+    class: '',
+  }))
+
+  layoutedNodes.value = [...laneNodes, ...regularNodes]
+  store.updateNodePositions(regularNodes, true)
+
+  nextTick(() => {
+    fitView({ padding: 0.2, duration: 500, minZoom: 0.02, maxZoom: 1.5 })
+  })
+}
 
 function onNodeClick(e) {
   if (e.node?.type === 'swimlane' || String(e.node?.id || '').startsWith('swimlane-')) {
@@ -205,55 +267,65 @@ onBeforeUnmount(() => {
     <VueFlow
       id="diagram-canvas"
       class="w-full h-full"
-    v-model:nodes="layoutedNodes"
-    v-model:edges="layoutedEdges"
-    :min-zoom="0.02"
-    :max-zoom="5"
-    :fit-view-on-init="true"
-    @node-click="onNodeClick"
-    @pane-click="onPaneClick"
-  >
-    <template #node-swimlane="nodeProps">
-      <SwimlaneLaneNode v-bind="nodeProps" />
-    </template>
-    <template #node-input="nodeProps">
-      <StartEndNode v-bind="nodeProps" />
-    </template>
-    <template #node-output="nodeProps">
-      <StartEndNode v-bind="nodeProps" />
-    </template>
-    <template #node-default="nodeProps">
-      <ProcessNode v-bind="nodeProps" />
-    </template>
-    <template #node-decision="nodeProps">
-      <DecisionNode v-bind="nodeProps" />
-    </template>
-    <template #node-database="nodeProps">
-      <DatabaseNode v-bind="nodeProps" />
-    </template>
-    <template #node-ui_frame="nodeProps">
-      <UiFrameNode v-bind="nodeProps" />
-    </template>
-
-    <Background
-      :variant="BackgroundVariant.Dots"
-      :gap="16"
-      :size="1"
-      pattern-color="#cbd5e1"
-    />
-    <Controls position="bottom-right">
-      <template #top>
-        <button
-          type="button"
-          class="vue-flow__controls-button !w-auto !px-1.5 !h-7 !text-[10px] !font-mono font-bold text-slate-700 bg-white select-none text-center cursor-pointer hover:bg-slate-100 hover:text-indigo-600 border-b border-slate-200 transition-colors"
-          title="Zoom Level (Klik untuk reset ke 100%)"
-          @click="handleResetZoom"
-        >
-          {{ zoomPercentage }}%
-        </button>
+      v-model:nodes="layoutedNodes"
+      v-model:edges="layoutedEdges"
+      :min-zoom="0.02"
+      :max-zoom="5"
+      :fit-view-on-init="true"
+      @node-click="onNodeClick"
+      @pane-click="onPaneClick"
+      @node-drag-stop="onNodeDragStop"
+    >
+      <template #node-swimlane="nodeProps">
+        <SwimlaneLaneNode v-bind="nodeProps" />
       </template>
-    </Controls>
-    <MiniMap position="bottom-left" />
+      <template #node-input="nodeProps">
+        <StartEndNode v-bind="nodeProps" />
+      </template>
+      <template #node-output="nodeProps">
+        <StartEndNode v-bind="nodeProps" />
+      </template>
+      <template #node-default="nodeProps">
+        <ProcessNode v-bind="nodeProps" />
+      </template>
+      <template #node-decision="nodeProps">
+        <DecisionNode v-bind="nodeProps" />
+      </template>
+      <template #node-database="nodeProps">
+        <DatabaseNode v-bind="nodeProps" />
+      </template>
+      <template #node-ui_frame="nodeProps">
+        <UiFrameNode v-bind="nodeProps" />
+      </template>
+
+      <Background
+        :variant="BackgroundVariant.Dots"
+        :gap="16"
+        :size="1"
+        pattern-color="#cbd5e1"
+      />
+      <Controls position="bottom-right">
+        <template #top>
+          <button
+            type="button"
+            class="vue-flow__controls-button !w-auto !px-2 !h-7 !text-[11px] font-semibold text-slate-700 bg-white select-none text-center cursor-pointer hover:bg-indigo-50 hover:text-indigo-600 border-b border-slate-200 transition-colors flex items-center gap-1 shadow-xs"
+            title="Tata Ulang / Rapikan Posisi Otomatis (Auto Layout)"
+            @click="handleAutoLayout"
+          >
+            <Sparkles class="w-3.5 h-3.5 text-indigo-500" />
+            <span>Rapikan</span>
+          </button>
+          <button
+            type="button"
+            class="vue-flow__controls-button !w-auto !px-1.5 !h-7 !text-[10px] !font-mono font-bold text-slate-700 bg-white select-none text-center cursor-pointer hover:bg-slate-100 hover:text-indigo-600 border-b border-slate-200 transition-colors"
+            title="Zoom Level (Klik untuk reset ke 100%)"
+            @click="handleResetZoom"
+          >
+            {{ zoomPercentage }}%
+          </button>
+        </template>
+      </Controls>
+      <MiniMap position="bottom-left" />
     </VueFlow>
   </div>
 </template>

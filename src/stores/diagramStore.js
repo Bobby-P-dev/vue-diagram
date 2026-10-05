@@ -29,7 +29,7 @@ function normalizeNodeType(rawType) {
   return NODE_TYPE_MAP[lower] || 'default'
 }
 
-function normalizeNodes(rawNodes = []) {
+export function normalizeNodes(rawNodes = []) {
   return rawNodes.map((node, index) => {
     if (node.type === 'ui_frame') {
       return normalizeUIFrameNode({
@@ -122,6 +122,37 @@ const isGenerating = computed(() => isProjectGenerating.value || isChatGeneratin
 const isSidebarLoading = ref(false)
 const errorMessage = ref('')
 
+const currentUser = ref(null)
+const authError = ref('')
+const isAuthChecking = ref(true)
+
+const isAuthenticated = computed(() => Boolean(currentUser.value?.id))
+const isAdmin = computed(() => currentUser.value?.role === 'admin')
+const canGenerateDiagram = computed(() => {
+  if (!currentUser.value) return false
+  if (currentUser.value.role === 'admin') return true
+  return currentUser.value.can_generate_diagram !== false
+})
+const canGenerateUI = computed(() => {
+  if (!currentUser.value) return false
+  if (currentUser.value.role === 'admin') return true
+  return currentUser.value.can_generate_ui !== false
+})
+
+// Auto-listen to expired sessions
+if (typeof window !== 'undefined') {
+  window.addEventListener('rl-auth-expired', (e) => {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('rl_access_token')
+      localStorage.removeItem('rl_user_info')
+    }
+    currentUser.value = null
+    if (e.detail?.message) {
+      authError.value = e.detail.message
+    }
+  })
+}
+
 const hasDiagram = computed(() => nodes.value.length > 0)
 const activeDiagramType = computed(() => activeProject.value?.diagram_type || 'flowchart')
 
@@ -135,6 +166,7 @@ export function useDiagramStore() {
       canvasMode.value = mode
     }
   }
+  const api = useDiagramApi()
   const {
     createProject,
     sendChat,
@@ -148,7 +180,7 @@ export function useDiagramStore() {
     createUiDesign,
     createUiDesignAsync,
     sendUiDesignChat,
-  } = useDiagramApi()
+  } = api
 
   const asyncJob = useAsyncJob()
 
@@ -194,6 +226,58 @@ export function useDiagramStore() {
 
   function setLanes(lanes) {
     currentLanes.value = Array.isArray(lanes) ? lanes : []
+  }
+
+  let saveGraphTimer = null
+
+  function updateNodePositions(updatedNodes = [], immediate = false) {
+    if (!Array.isArray(updatedNodes) || updatedNodes.length === 0) return
+
+    const posMap = new Map()
+    updatedNodes.forEach((n) => {
+      if (n.id && n.position) {
+        posMap.set(String(n.id), {
+          x: Math.round(n.position.x),
+          y: Math.round(n.position.y),
+        })
+      }
+    })
+
+    nodes.value = nodes.value.map((node) => {
+      const newPos = posMap.get(String(node.id))
+      if (newPos) {
+        return {
+          ...node,
+          position: newPos,
+        }
+      }
+      return node
+    })
+
+    if (activeProject.value) {
+      activeProject.value.current_nodes = [...nodes.value]
+    }
+
+    const projectId = activeProject.value?.id
+    if (!projectId) return
+
+    clearTimeout(saveGraphTimer)
+    const doSave = async () => {
+      try {
+        await api.updateProjectGraph(projectId, {
+          nodes: nodes.value,
+          edges: edges.value,
+        })
+      } catch (err) {
+        console.error('Failed to persist node positions:', err)
+      }
+    }
+
+    if (immediate) {
+      doSave()
+    } else {
+      saveGraphTimer = setTimeout(doSave, 400)
+    }
   }
 
   function sortProjectsList() {
@@ -662,8 +746,159 @@ export function useDiagramStore() {
     selectedComponentId.value = null
   }
 
+  async function shareProject(projectId) {
+    const id = projectId || activeProject.value?.id
+    if (!id) throw new Error('shareProject: No active project')
+    try {
+      const result = await api.createProjectShare(id)
+      return result
+    } catch (err) {
+      errorMessage.value = err.message || 'Gagal membuat tautan berbagi'
+      throw err
+    }
+  }
+
+  async function getShareStatus(projectId) {
+    const id = projectId || activeProject.value?.id
+    if (!id) return null
+    try {
+      return await api.getProjectShareStatus(id)
+    } catch (err) {
+      return null
+    }
+  }
+
+  async function revokeShare(projectId) {
+    const id = projectId || activeProject.value?.id
+    if (!id) return
+    try {
+      const res = await api.revokeProjectShare(id)
+      return res
+    } catch (err) {
+      errorMessage.value = err.message || 'Gagal menonaktifkan tautan berbagi'
+      throw err
+    }
+  }
+
+  async function loadSharedProject(token) {
+    try {
+      return await api.getSharedProject(token)
+    } catch (err) {
+      errorMessage.value = err.message || 'Proyek yang dibagikan tidak ditemukan'
+      throw err
+    }
+  }
+
+  async function forkSharedProject(token, title = '') {
+    try {
+      const cloned = await api.forkSharedProject(token, title)
+      if (cloned?.id) {
+        await loadSidebar()
+        await openProject(cloned.id)
+      }
+      return cloned
+    } catch (err) {
+      errorMessage.value = err.message || 'Gagal menyalin proyek ke workspace'
+      throw err
+    }
+  }
+
+  async function loginWithCredential(credentialKey) {
+    errorMessage.value = null
+    authError.value = ''
+    try {
+      const res = await api.verifyCredential(credentialKey)
+      if (res?.token && res?.user) {
+        if (typeof localStorage !== 'undefined') {
+          localStorage.setItem('rl_access_token', res.token)
+          localStorage.setItem('rl_user_info', JSON.stringify(res.user))
+        }
+        currentUser.value = res.user
+        await loadSidebar()
+        return true
+      }
+      return false
+    } catch (err) {
+      authError.value = err.message || 'Kredensial tidak valid'
+      throw err
+    }
+  }
+
+  async function checkAuth() {
+    isAuthChecking.value = true
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rl_access_token') : null
+    if (!token) {
+      currentUser.value = null
+      isAuthChecking.value = false
+      return false
+    }
+
+    try {
+      const user = await api.getCurrentUser()
+      currentUser.value = user
+      if (typeof localStorage !== 'undefined') {
+        localStorage.setItem('rl_user_info', JSON.stringify(user))
+      }
+      isAuthChecking.value = false
+      return true
+    } catch (err) {
+      logout()
+      authError.value = err.message
+      isAuthChecking.value = false
+      return false
+    }
+  }
+
+  function logout() {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('rl_access_token')
+      localStorage.removeItem('rl_user_info')
+    }
+    currentUser.value = null
+    activeProject.value = null
+    projectsList.value = []
+    nodes.value = []
+    edges.value = []
+    chatHistory.value = []
+  }
+
+  async function fetchAdminCredentials() {
+    return api.adminGetCredentials()
+  }
+
+  async function createAdminCredential(payload) {
+    return api.adminCreateCredential(payload)
+  }
+
+  async function updateAdminCredential(id, payload) {
+    return api.adminUpdateCredential(id, payload)
+  }
+
+  async function deleteAdminCredential(id) {
+    return api.adminDeleteCredential(id)
+  }
+
   return {
+    currentUser,
+    authError,
+    isAuthChecking,
+    isAuthenticated,
+    isAdmin,
+    canGenerateDiagram,
+    canGenerateUI,
+    loginWithCredential,
+    checkAuth,
+    logout,
+    fetchAdminCredentials,
+    createAdminCredential,
+    updateAdminCredential,
+    deleteAdminCredential,
     selectNode,
+    shareProject,
+    getShareStatus,
+    revokeShare,
+    loadSharedProject,
+    forkSharedProject,
     projectsList,
     projectsTotal,
     projectsHasMore,
@@ -672,6 +907,7 @@ export function useDiagramStore() {
     chatHistory,
     nodes,
     edges,
+    updateNodePositions,
     selectedNodes,
     selectedComponentId,
     selectedTarget,

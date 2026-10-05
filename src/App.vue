@@ -21,6 +21,11 @@ import {
   FilePlus,
   ArrowRight,
   BookOpen,
+  ArrowLeftRight,
+  Component,
+  Server,
+  GitBranch,
+  Share2,
 } from 'lucide-vue-next'
 import TopNavbar from './components/layout/TopNavbar.vue'
 import ProjectSidebar from './components/layout/ProjectSidebar.vue'
@@ -29,21 +34,27 @@ import DiagramCanvas from './components/canvas/DiagramCanvas.vue'
 import ExportDropdown from './components/ui/ExportDropdown.vue'
 import NewProjectModal from './components/ui/NewProjectModal.vue'
 import VersionHistoryModal from './components/ui/VersionHistoryModal.vue'
+import ShareProjectModal from './components/ui/ShareProjectModal.vue'
 import FoundationsCatalog from './components/ui-design/views/FoundationsCatalog.vue'
 import TemplateExplorer from './components/ui-design/views/TemplateExplorer.vue'
+import SharedProjectView from './components/ui-design/views/SharedProjectView.vue'
 import TokenInspectorModal from './components/ui-design/TokenInspectorModal.vue'
-import DevDebugPanel from './components/ui-design/DevDebugPanel.vue'
+import AccessGateView from './components/auth/AccessGateView.vue'
+import AdminCredentialsModal from './components/admin/AdminCredentialsModal.vue'
 import { DESIGN_FOUNDATIONS } from './assets/foundations.js'
 import { useDiagramStore } from './stores/diagramStore.js'
 
 const store = useDiagramStore()
 
-const currentView = ref('workspace') // 'workspace' | 'foundations' | 'templates'
+const currentView = ref('workspace') // 'workspace' | 'foundations' | 'templates' | 'shared'
 const isSidebarOpen = ref(true)
 const isChatOpen = ref(true)
 const isNewModalOpen = ref(false)
 const isVersionHistoryOpen = ref(false)
 const isTokenInspectorOpen = ref(false)
+const isShareModalOpen = ref(false)
+const isAdminModalOpen = ref(false)
+const shareToken = ref('')
 const errorVisible = ref(false)
 let errorTimer = null
 
@@ -62,24 +73,30 @@ const currentVersionNumber = computed(() => {
 const DIRECTION_MAP = {
   flowchart: 'TB',
   architecture: 'TB',
+  c4: 'TB',
+  sequence: 'LR',
   erd: 'TB',
   class: 'TB',
   state: 'LR',
   pipeline: 'LR',
+  network: 'TB',
+  cicd: 'LR',
   mindmap: 'LR',
   swimlane: 'LR',
-  network: 'TB',
-  sequence: 'LR',
   ui_design: 'LR',
 }
 
 const DIAGRAM_TYPE_LABELS = {
   flowchart: 'Flowchart',
   architecture: 'Architecture',
+  c4: 'C4 Model',
+  sequence: 'Sequence Diagram',
   erd: 'ERD / Database',
   class: 'UML Class',
   state: 'State Machine',
   pipeline: 'Data Pipeline',
+  network: 'Network & Infra',
+  cicd: 'CI/CD Pipeline',
   mindmap: 'Mind Map',
   swimlane: 'Swimlane BPMN',
   ui_design: 'UI Design Canvas',
@@ -88,10 +105,14 @@ const DIAGRAM_TYPE_LABELS = {
 const TYPE_ICON_MAP = {
   flowchart: Workflow,
   architecture: Network,
+  c4: Component,
+  sequence: ArrowLeftRight,
   erd: Database,
   class: Boxes,
   state: RefreshCw,
   pipeline: Zap,
+  network: Server,
+  cicd: GitBranch,
   mindmap: Brain,
   swimlane: Layers,
   ui_design: Palette,
@@ -212,6 +233,18 @@ const canvasPrompt = ref('')
 const canvasDevice = ref('web')
 const canvasDiagramType = ref('flowchart')
 
+watch(
+  () => [store.canGenerateUI.value, store.canGenerateDiagram.value],
+  ([canUI, canDiagram]) => {
+    if (!canUI && canDiagram) {
+      canvasMode.value = 'diagram'
+    } else if (canUI && !canDiagram) {
+      canvasMode.value = 'ui_design'
+    }
+  },
+  { immediate: true },
+)
+
 async function handleGenerateFromCanvas() {
   if (!canvasPrompt.value.trim() || store.isGenerating.value) return
   const text = canvasPrompt.value.trim()
@@ -248,38 +281,113 @@ watch(
   }
 )
 
-onMounted(async () => {
+function openShareModal() {
+  isShareModalOpen.value = true
+}
+
+function handleCloseShare() {
+  if (window.history.replaceState) {
+    const cleanUrl = window.location.pathname
+    window.history.replaceState({}, document.title, cleanUrl)
+  }
+  currentView.value = 'workspace'
+}
+
+async function handleForkSuccess(forkedProject) {
+  if (window.history.replaceState) {
+    const cleanUrl = window.location.pathname
+    window.history.replaceState({}, document.title, cleanUrl)
+  }
+  currentView.value = 'workspace'
   await store.loadSidebar()
+  if (forkedProject?.id) {
+    await store.selectProject(forkedProject.id)
+  }
+}
+
+async function handleLoginSuccess() {
+  await store.loadSidebar()
+  currentView.value = 'workspace'
+}
+
+function handleLogout() {
+  store.logout()
+  currentView.value = 'workspace'
+}
+
+onMounted(async () => {
+  // Check URL for share token (?share=token or /share/token)
+  const urlParams = new URLSearchParams(window.location.search)
+  const queryShare = urlParams.get('share')
+  const pathShareMatch = window.location.pathname.match(/\/share\/([a-zA-Z0-9_-]+)/)
+  const foundToken = queryShare || (pathShareMatch ? pathShareMatch[1] : null)
+
+  if (foundToken) {
+    shareToken.value = foundToken
+    currentView.value = 'shared'
+  }
+
+  // Verify auth session with backend
+  const hasAuth = await store.checkAuth()
+  if (hasAuth) {
+    await store.loadSidebar()
+  }
+
   // Start on an empty canvas with copilot chat open by default (do not auto-open random project)
-  store.activeProject.value = null
-  store.nodes.value = []
-  store.edges.value = []
-  store.chatHistory.value = []
-  isChatOpen.value = true
+  if (!foundToken) {
+    store.activeProject.value = null
+    store.nodes.value = []
+    store.edges.value = []
+    store.chatHistory.value = []
+    isChatOpen.value = true
+  }
 })
 </script>
 
 <template>
   <div class="flex flex-col h-screen w-screen overflow-hidden bg-slate-900 font-sans text-slate-800 antialiased">
-    <!-- 1. TOP NAVBAR -->
-    <TopNavbar
-      :current-view="currentView"
-      :active-project-title="store.activeProject.value?.title || 'Untitled Project'"
-      :active-foundation-name="activeFoundation.name"
-      :has-diagram="store.hasDiagram.value"
-      :current-version-number="currentVersionNumber"
-      :is-ui-design="isUiDesignProject"
-      @navigate="handleNavigate"
-      @new-project="openNewProjectModal"
-      @open-versions="isVersionHistoryOpen = true"
-      @inspect-tokens="openTokenInspector"
-      @toggle-sidebar="toggleSidebar"
+    <!-- ACCESS GATE: Shown when not authenticated and not accessing a public shared view -->
+    <AccessGateView
+      v-if="!store.isAuthenticated.value && currentView !== 'shared'"
+      @login-success="handleLoginSuccess"
     />
 
-    <!-- 2. BODY CONTENT (Conditional on currentView) -->
-    <div class="flex flex-1 w-full h-[calc(100vh-48px)] overflow-hidden bg-slate-50">
+    <!-- AUTHENTICATED APP OR PUBLIC SHARE VIEW -->
+    <template v-else>
+      <!-- 1. TOP NAVBAR (Hidden during standalone public share view) -->
+      <TopNavbar
+        v-if="currentView !== 'shared'"
+        :current-view="currentView"
+        :active-project-title="store.activeProject.value?.title || 'Untitled Project'"
+        :active-foundation-name="activeFoundation.name"
+        :has-diagram="store.hasDiagram.value"
+        :current-version-number="currentVersionNumber"
+        :is-ui-design="isUiDesignProject"
+        :current-user="store.currentUser.value"
+        :is-admin="store.isAdmin.value"
+        :can-generate-ui="store.canGenerateUI.value"
+        @navigate="handleNavigate"
+        @new-project="openNewProjectModal"
+        @open-versions="isVersionHistoryOpen = true"
+        @inspect-tokens="openTokenInspector"
+        @toggle-sidebar="toggleSidebar"
+        @open-admin="isAdminModalOpen = true"
+        @logout="handleLogout"
+      />
+
+      <!-- 2. BODY CONTENT (Conditional on currentView) -->
+      <div :class="['flex flex-1 w-full overflow-hidden bg-slate-50', currentView === 'shared' ? 'h-full' : 'h-[calc(100vh-48px)]']">
+      <!-- VIEW S: SHARED PROJECT (Public Interactive Read-only View) -->
+      <div v-if="currentView === 'shared'" class="w-full h-full overflow-hidden bg-slate-900">
+        <SharedProjectView
+          :token="shareToken"
+          @close-share="handleCloseShare"
+          @fork-success="handleForkSuccess"
+        />
+      </div>
+
       <!-- VIEW A: FOUNDATIONS CATALOG -->
-      <div v-if="currentView === 'foundations'" class="w-full h-full overflow-hidden bg-slate-950">
+      <div v-else-if="currentView === 'foundations'" class="w-full h-full overflow-hidden bg-slate-950">
         <FoundationsCatalog
           :active-foundation-id="store.activeFoundationId.value"
           @select-foundation="handleSelectFoundationFromCatalog"
@@ -360,6 +468,17 @@ onMounted(async () => {
               </button>
 
               <ExportDropdown v-if="store.hasDiagram.value" />
+
+              <button
+                v-if="store.hasDiagram.value"
+                type="button"
+                @click="openShareModal"
+                title="Bagikan Proyek & Chat"
+                class="px-2 py-1 rounded-md border border-slate-200 bg-white hover:bg-indigo-50 hover:border-indigo-200 hover:text-indigo-600 text-slate-700 text-xs font-medium transition-colors flex items-center gap-1.5 shadow-xs"
+              >
+                <Share2 class="w-3.5 h-3.5 text-indigo-600" />
+                <span class="hidden sm:inline font-semibold text-[11px]">Bagikan</span>
+              </button>
 
               <button
                 type="button"
@@ -465,6 +584,7 @@ onMounted(async () => {
                   <!-- Mode Switcher -->
                   <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-xs font-semibold text-slate-600">
                     <button
+                      v-if="store.canGenerateUI.value"
                       type="button"
                       @click="canvasMode = 'ui_design'"
                       :class="[
@@ -476,6 +596,7 @@ onMounted(async () => {
                       <span>UI Design</span>
                     </button>
                     <button
+                      v-if="store.canGenerateDiagram.value"
                       type="button"
                       @click="canvasMode = 'diagram'"
                       :class="[
@@ -520,11 +641,17 @@ onMounted(async () => {
                       class="px-2 py-1 text-xs font-semibold bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-hidden focus:border-indigo-500 cursor-pointer"
                     >
                       <option value="flowchart">Flowchart</option>
-                      <option value="architecture">Architecture</option>
+                      <option value="architecture">Cloud Architecture</option>
                       <option value="sequence">Sequence Diagram</option>
-                      <option value="erd">ERD / Database</option>
+                      <option value="c4">C4 Model Architecture</option>
+                      <option value="erd">ERD / Relational DB</option>
                       <option value="class">UML Class</option>
                       <option value="state">State Machine</option>
+                      <option value="pipeline">Data Pipeline</option>
+                      <option value="network">Network & Infra</option>
+                      <option value="cicd">CI/CD Pipeline</option>
+                      <option value="swimlane">Swimlane BPMN</option>
+                      <option value="mindmap">Mind Map</option>
                     </select>
                   </div>
                 </div>
@@ -592,11 +719,25 @@ onMounted(async () => {
           @toggle="toggleChat"
           @inspect-tokens="openTokenInspector"
           @select-foundation="handleSelectFoundation"
+          @share="openShareModal"
         />
       </div>
     </div>
+    </template>
 
     <!-- MODALS -->
+    <!-- Admin Credentials Modal (accessible by Master Admin) -->
+    <AdminCredentialsModal
+      :is-open="isAdminModalOpen"
+      @close="isAdminModalOpen = false"
+    />
+
+    <!-- Share Project Modal -->
+    <ShareProjectModal
+      :is-open="isShareModalOpen"
+      @close="isShareModalOpen = false"
+    />
+
     <!-- Token Inspector Modal -->
     <TokenInspectorModal
       :is-open="isTokenInspectorOpen"
@@ -619,9 +760,6 @@ onMounted(async () => {
       :is-open="isVersionHistoryOpen"
       @close="isVersionHistoryOpen = false"
     />
-
-    <!-- Developer Thin Client Debug Panel -->
-    <DevDebugPanel />
 
     <!-- Error Toast Notification -->
     <transition

@@ -14,6 +14,7 @@ import {
   X,
   Palette,
   Workflow,
+  Share2,
 } from 'lucide-vue-next'
 import { useDiagramStore } from '../../stores/diagramStore.js'
 import { DESIGN_FOUNDATIONS } from '../../assets/foundations.js'
@@ -29,7 +30,7 @@ const props = defineProps({
   },
 })
 
-const emit = defineEmits(['toggle', 'inspectTokens', 'selectFoundation'])
+const emit = defineEmits(['toggle', 'inspectTokens', 'selectFoundation', 'share'])
 
 const store = useDiagramStore()
 const asyncJob = store.asyncJob
@@ -157,6 +158,15 @@ function handleKeyDown(e) {
       </div>
 
       <div class="flex items-center gap-1">
+        <button
+          v-if="store.activeProject.value?.id"
+          type="button"
+          @click="emit('share')"
+          class="p-1.5 text-slate-500 hover:text-indigo-600 hover:bg-indigo-50 rounded-md transition-colors"
+          title="Bagikan Proyek & Chat"
+        >
+          <Share2 class="w-4 h-4" />
+        </button>
         <button
           type="button"
           @click="emit('toggle')"

@@ -1,5 +1,5 @@
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, watch } from 'vue'
 import {
   Plus,
   PanelLeftClose,
@@ -45,6 +45,16 @@ const emit = defineEmits([
 const store = useDiagramStore()
 const activeTab = ref('projects') // 'projects' | 'foundations' | 'review'
 const searchQuery = ref('')
+
+watch(
+  () => store.canGenerateUI.value,
+  (can) => {
+    if (!can) {
+      activeTab.value = 'projects'
+    }
+  },
+  { immediate: true }
+)
 
 const projects = computed(() => store.projectsList.value || [])
 const activeId = computed(() => store.activeProject.value?.id)
@@ -195,8 +205,8 @@ const reviewComments = computed(() => {
       </button>
     </div>
 
-    <!-- Sidebar Navigation Tabs -->
-    <div class="px-3 pt-2 pb-1 border-b border-slate-800/80 flex items-center gap-1">
+    <!-- Sidebar Navigation Tabs (Only shown if UI generation is permitted) -->
+    <div v-if="store.canGenerateUI.value" class="px-3 pt-2 pb-1 border-b border-slate-800/80 flex items-center gap-1">
       <button
         type="button"
         @click="activeTab = 'projects'"

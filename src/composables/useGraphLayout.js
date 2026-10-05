@@ -79,7 +79,9 @@ function getNodeDimensions(node) {
 }
 
 export function useGraphLayout() {
-  function layoutSwimlaneGraph(rawNodes = [], rawEdges = []) {
+  function layoutSwimlaneGraph(rawNodes = [], rawEdges = [], options = {}) {
+    const forceAutoLayout = Boolean(options?.forceAutoLayout)
+
     // 1. Ekstrak unique lanes sesuai urutan kemunculan di nodes
     const uniqueLanes = []
     rawNodes.forEach((node) => {
@@ -91,6 +93,56 @@ export function useGraphLayout() {
 
     if (uniqueLanes.length === 0) {
       uniqueLanes.push('PROCESS')
+    }
+
+    // Jika posisi sudah pernah digeser dan tidak meminta forceAutoLayout, pertahankan posisi
+    const hasCustomPositions =
+      !forceAutoLayout &&
+      rawNodes.length > 0 &&
+      rawNodes.some(
+        (n) =>
+          n.position &&
+          typeof n.position.x === 'number' &&
+          typeof n.position.y === 'number' &&
+          (n.position.x !== 0 || n.position.y !== 0)
+      )
+
+    if (hasCustomPositions) {
+      let maxNodeX = 600
+      rawNodes.forEach((node) => {
+        const { width } = getNodeDimensions(node)
+        const posX = node.position?.x ?? 100
+        maxNodeX = Math.max(maxNodeX, posX + width + 80)
+      })
+
+      const lanes = uniqueLanes.map((laneName, index) => {
+        const laneY = LANE_TOP_OFFSET + index * (LANE_HEIGHT + LANE_GAP)
+        const colorScheme = LANE_COLORS[index % LANE_COLORS.length]
+        return {
+          id: laneName,
+          title: laneName,
+          x: LANE_LEFT_OFFSET,
+          y: laneY,
+          width: Math.max(1000, maxNodeX - LANE_LEFT_OFFSET + 100),
+          height: LANE_HEIGHT,
+          border: colorScheme.border,
+          headerBg: colorScheme.headerBg,
+          bg: colorScheme.bg,
+          text: colorScheme.text,
+        }
+      })
+
+      const resultNodes = rawNodes.map((n) => ({
+        id: String(n.id),
+        type: n.type,
+        data: n.data,
+        position: {
+          x: n.position?.x ?? 100,
+          y: n.position?.y ?? 100,
+        },
+      }))
+      resultNodes.lanes = lanes
+      return resultNodes
     }
 
     // 2. Gunakan Dagre LR untuk menghitung urutan sekuensial langkah horizontal (X)
@@ -203,7 +255,7 @@ export function useGraphLayout() {
     return resultNodes
   }
 
-  function layoutGraph(rawNodes = [], rawEdges = [], direction = 'TB', diagramType = '') {
+  function layoutGraph(rawNodes = [], rawEdges = [], direction = 'TB', diagramType = '', options = {}) {
     if (!Array.isArray(rawNodes) || !Array.isArray(rawEdges)) {
       throw new Error('layoutGraph: `rawNodes` and `rawEdges` must be arrays')
     }
@@ -213,6 +265,8 @@ export function useGraphLayout() {
       empty.lanes = []
       return empty
     }
+
+    const forceAutoLayout = Boolean(options?.forceAutoLayout)
 
     const resolvedDirection =
       typeof direction === 'string'
@@ -233,7 +287,7 @@ export function useGraphLayout() {
 
     const hasLanes = isSwimlane && rawNodes.some((n) => Boolean(n.data?.lane && String(n.data.lane).trim() !== ''))
     if (hasLanes) {
-      return layoutSwimlaneGraph(rawNodes, rawEdges)
+      return layoutSwimlaneGraph(rawNodes, rawEdges, options)
     }
 
     // Jika semua node adalah UI Frame dan tidak ada edge, pertahankan posisi koordinat
@@ -259,6 +313,33 @@ export function useGraphLayout() {
       return layoutedNodes
     }
 
+    // PRESERVASI POSISI: Jika node sudah memiliki posisi valid (karena pernah digeser user atau tersimpan)
+    // dan user tidak meminta reset / auto-layout paksa, gunakan posisi yang sudah tersimpan!
+    const hasCustomPositions =
+      !forceAutoLayout &&
+      rawNodes.length > 0 &&
+      rawNodes.some(
+        (n) =>
+          n.position &&
+          typeof n.position.x === 'number' &&
+          typeof n.position.y === 'number' &&
+          (n.position.x !== 0 || n.position.y !== 0)
+      )
+
+    if (hasCustomPositions) {
+      const preservedNodes = rawNodes.map((node) => ({
+        id: String(node.id),
+        type: node.type,
+        data: node.data,
+        position: {
+          x: node.position?.x ?? 60,
+          y: node.position?.y ?? 60,
+        },
+      }))
+      preservedNodes.lanes = []
+      return preservedNodes
+    }
+
     // Layout Dagre Standar untuk diagram non-swimlane (ERD, Flowchart, Architecture, dll)
     const dagreGraph = new dagre.graphlib.Graph()
     dagreGraph.setDefaultEdgeLabel(() => ({}))
@@ -270,12 +351,12 @@ export function useGraphLayout() {
 
     rawNodes.forEach((node) => {
       const { width, height } = getNodeDimensions(node)
-      dagreGraph.setNode(node.id, { width, height })
+      dagreGraph.setNode(String(node.id), { width, height })
     })
 
     rawEdges.forEach((edge) => {
       if (edge.source && edge.target) {
-        dagreGraph.setEdge(edge.source, edge.target)
+        dagreGraph.setEdge(String(edge.source), String(edge.target))
       }
     })
 
@@ -283,10 +364,13 @@ export function useGraphLayout() {
 
     const layoutedNodes = rawNodes.map((node) => {
       const { width, height } = getNodeDimensions(node)
-      const nodeWithPosition = dagreGraph.node(node.id)
+      const nodeWithPosition = dagreGraph.node(String(node.id)) || {
+        x: width / 2 + 60,
+        y: height / 2 + 60,
+      }
 
       return {
-        id: node.id,
+        id: String(node.id),
         type: node.type,
         data: node.data,
         position: {

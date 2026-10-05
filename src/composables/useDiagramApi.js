@@ -5,12 +5,16 @@ const API_BASE_URL =
 async function request(path, options = {}) {
   const url = `${API_BASE_URL}${path}`
 
+  const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rl_access_token') : null
+  const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+
   let response
   try {
     response = await fetch(url, {
       headers: {
         'Content-Type': 'application/json',
         Accept: 'application/json',
+        ...authHeaders,
         ...(options.headers || {}),
       },
       ...options,
@@ -41,6 +45,18 @@ async function request(path, options = {}) {
       payload && (payload.error || payload.message)
         ? payload.error || payload.message
         : `HTTP ${response.status} ${response.statusText}`
+
+    // Trigger auth expiry notification for unauthenticated/expired sessions
+    if ((response.status === 401 || response.status === 403) && !path.startsWith('/auth/verify')) {
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('rl-auth-expired', {
+            detail: { message: backendMessage, status: response.status },
+          }),
+        )
+      }
+    }
+
     throw new Error(backendMessage)
   }
 
@@ -118,6 +134,16 @@ export function useDiagramApi() {
     }
     return request(`/projects/${encodeURIComponent(projectId)}`, {
       method: 'GET',
+    })
+  }
+
+  async function updateProjectGraph(projectId, { nodes = [], edges = [] } = {}) {
+    if (!projectId) {
+      throw new Error('updateProjectGraph: `projectId` is required')
+    }
+    return request(`/projects/${encodeURIComponent(projectId)}/graph`, {
+      method: 'PUT',
+      body: JSON.stringify({ nodes, edges }),
     })
   }
 
@@ -334,6 +360,90 @@ export function useDiagramApi() {
     return request(`/projects/${encodeURIComponent(projectId)}/exports`)
   }
 
+  async function createProjectShare(projectId) {
+    if (!projectId) throw new Error('createProjectShare: `projectId` is required')
+    return request(`/projects/${encodeURIComponent(projectId)}/share`, {
+      method: 'POST',
+    })
+  }
+
+  async function getProjectShareStatus(projectId) {
+    if (!projectId) throw new Error('getProjectShareStatus: `projectId` is required')
+    return request(`/projects/${encodeURIComponent(projectId)}/share`, {
+      method: 'GET',
+    })
+  }
+
+  async function revokeProjectShare(projectId) {
+    if (!projectId) throw new Error('revokeProjectShare: `projectId` is required')
+    return request(`/projects/${encodeURIComponent(projectId)}/share`, {
+      method: 'DELETE',
+    })
+  }
+
+  async function getSharedProject(token) {
+    if (!token) throw new Error('getSharedProject: `token` is required')
+    return request(`/shared/${encodeURIComponent(token)}`, {
+      method: 'GET',
+    })
+  }
+
+  async function forkSharedProject(token, title = '') {
+    if (!token) throw new Error('forkSharedProject: `token` is required')
+    return request(`/shared/${encodeURIComponent(token)}/fork`, {
+      method: 'POST',
+      body: JSON.stringify({ title }),
+    })
+  }
+
+  async function verifyCredential(credentialKey) {
+    if (!credentialKey) throw new Error('Kode kredensial harus diisi')
+    return request('/auth/verify', {
+      method: 'POST',
+      body: JSON.stringify({ credential_key: credentialKey.trim() }),
+    })
+  }
+
+  async function getCurrentUser() {
+    return request('/auth/me', {
+      method: 'GET',
+    })
+  }
+
+  async function logout() {
+    return request('/auth/logout', {
+      method: 'POST',
+    })
+  }
+
+  async function adminGetCredentials() {
+    return request('/admin/credentials', {
+      method: 'GET',
+    })
+  }
+
+  async function adminCreateCredential(payload) {
+    return request('/admin/credentials', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async function adminUpdateCredential(id, payload) {
+    if (!id) throw new Error('adminUpdateCredential: id is required')
+    return request(`/admin/credentials/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      body: JSON.stringify(payload),
+    })
+  }
+
+  async function adminDeleteCredential(id) {
+    if (!id) throw new Error('adminDeleteCredential: id is required')
+    return request(`/admin/credentials/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    })
+  }
+
   return {
     apiBaseUrl: API_BASE_URL,
     createProject,
@@ -341,6 +451,7 @@ export function useDiagramApi() {
     getProjects,
     togglePinProject,
     getProjectDetails,
+    updateProjectGraph,
     getVersions,
     rollbackVersion,
     getTemplates,
@@ -357,5 +468,17 @@ export function useDiagramApi() {
     getSettings,
     updateSettings,
     getExports,
+    createProjectShare,
+    getProjectShareStatus,
+    revokeProjectShare,
+    getSharedProject,
+    forkSharedProject,
+    verifyCredential,
+    getCurrentUser,
+    logout,
+    adminGetCredentials,
+    adminCreateCredential,
+    adminUpdateCredential,
+    adminDeleteCredential,
   }
 }

@@ -26,6 +26,10 @@ import {
   ChevronUp,
   FilePlus,
   Sliders,
+  ArrowLeftRight,
+  Component,
+  Server,
+  GitBranch,
 } from 'lucide-vue-next'
 import { useDiagramStore } from '../../stores/diagramStore.js'
 
@@ -43,6 +47,10 @@ const props = defineProps({
 const emit = defineEmits(['close', 'create', 'createBlank'])
 
 const store = useDiagramStore()
+
+// Permissions
+const canGenerateDiagram = computed(() => store.canGenerateDiagram.value)
+const canGenerateUI = computed(() => store.canGenerateUI.value)
 
 // Tab state: 'ui_design' | 'diagram' | 'templates'
 const activeTab = ref('ui_design')
@@ -112,6 +120,22 @@ const DIAGRAM_TYPES = [
     placeholder: 'Contoh: Arsitektur microservices e-commerce dengan API Gateway, Redis cache, dan PostgreSQL',
   },
   {
+    value: 'sequence',
+    label: 'Sequence',
+    icon: ArrowLeftRight,
+    iconColor: 'text-purple-500',
+    description: 'Interaksi antar sistem, request & return message',
+    placeholder: 'Contoh: Sequence alur autentikasi OAuth2 Google antara User, Frontend SPA, API Gateway, Auth Provider & Database',
+  },
+  {
+    value: 'c4',
+    label: 'C4 Model',
+    icon: Component,
+    iconColor: 'text-sky-500',
+    description: 'System context, containers, & component boundaries',
+    placeholder: 'Contoh: C4 Container model banking: Internet Banking SPA, Mobile App, API Backend, Core Banking System, DB',
+  },
+  {
     value: 'erd',
     label: 'ERD / Database',
     icon: Database,
@@ -144,12 +168,20 @@ const DIAGRAM_TYPES = [
     placeholder: 'Contoh: Data pipeline analitik: Event Source -> Kafka -> Flink -> ClickHouse -> Dashboard',
   },
   {
-    value: 'mindmap',
-    label: 'Mind Map',
-    icon: Brain,
-    iconColor: 'text-rose-500',
-    description: 'Peta hierarki pemikiran & topik',
-    placeholder: 'Contoh: Roadmap produk Q3: Fitur Mobile, Security, AI Copilot, dan Infra',
+    value: 'network',
+    label: 'Network / Infra',
+    icon: Server,
+    iconColor: 'text-teal-500',
+    description: 'Topologi cloud VPC, subnet, bastion & firewall',
+    placeholder: 'Contoh: Topologi AWS VPC: Internet Gateway, Public Subnet (ALB), Private Subnet (EKS pods), dan RDS DB',
+  },
+  {
+    value: 'cicd',
+    label: 'CI/CD Pipeline',
+    icon: GitBranch,
+    iconColor: 'text-green-500',
+    description: 'DevOps workflow, test, docker build & deploy',
+    placeholder: 'Contoh: Pipeline CI/CD GitHub Actions: Lint -> Test -> Docker Build -> Trivy Scan -> Deploy Staging & Prod',
   },
   {
     value: 'swimlane',
@@ -158,6 +190,14 @@ const DIAGRAM_TYPES = [
     iconColor: 'text-orange-500',
     description: 'Alur proses lintas divisi/aktor',
     placeholder: 'Contoh: Alur pengadaan barang (Procurement): Requester, Approver, Purchasing, Supplier',
+  },
+  {
+    value: 'mindmap',
+    label: 'Mind Map',
+    icon: Brain,
+    iconColor: 'text-rose-500',
+    description: 'Peta hierarki pemikiran & topik',
+    placeholder: 'Contoh: Roadmap produk Q3: Fitur Mobile, Security, AI Copilot, dan Infra',
   },
 ]
 
@@ -212,8 +252,16 @@ function getDiagramTypeBadge(type) {
   const map = {
     swimlane: { label: 'BPMN Swimlane', color: 'bg-orange-100 text-orange-700 border-orange-200' },
     architecture: { label: 'Cloud Architecture', color: 'bg-indigo-100 text-indigo-700 border-indigo-200' },
+    sequence: { label: 'Sequence Diagram', color: 'bg-purple-100 text-purple-700 border-purple-200' },
+    c4: { label: 'C4 Model', color: 'bg-sky-100 text-sky-700 border-sky-200' },
     erd: { label: 'Relational ERD', color: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
     flowchart: { label: 'Flowchart', color: 'bg-blue-100 text-blue-700 border-blue-200' },
+    network: { label: 'Network & Infra', color: 'bg-teal-100 text-teal-700 border-teal-200' },
+    cicd: { label: 'CI/CD Pipeline', color: 'bg-green-100 text-green-700 border-green-200' },
+    class: { label: 'UML Class', color: 'bg-violet-100 text-violet-700 border-violet-200' },
+    state: { label: 'State Machine', color: 'bg-amber-100 text-amber-700 border-amber-200' },
+    pipeline: { label: 'Data Pipeline', color: 'bg-cyan-100 text-cyan-700 border-cyan-200' },
+    mindmap: { label: 'Mind Map', color: 'bg-rose-100 text-rose-700 border-rose-200' },
   }
   return map[type] || { label: type, color: 'bg-slate-100 text-slate-700 border-slate-200' }
 }
@@ -230,7 +278,16 @@ watch(
       uiOrchestrationMode.value = 'crewai'
       templateSearch.value = ''
       selectedCategory.value = 'All'
-      templateTypeFilter.value = 'all'
+      if (!canGenerateUI.value && canGenerateDiagram.value) {
+        activeTab.value = 'diagram'
+        templateTypeFilter.value = 'diagram'
+      } else if (canGenerateUI.value && !canGenerateDiagram.value) {
+        activeTab.value = 'ui_design'
+        templateTypeFilter.value = 'ui_design'
+      } else {
+        activeTab.value = 'ui_design'
+        templateTypeFilter.value = 'all'
+      }
       store.loadTemplates()
       store.loadUiTemplates()
     }
@@ -329,9 +386,10 @@ function handleClose() {
       <div class="flex items-center px-5 border-b border-slate-200 bg-white gap-2 flex-shrink-0">
         <!-- Tab 1: UI Design Canvas -->
         <button
+          v-if="canGenerateUI"
           type="button"
           @click="activeTab = 'ui_design'"
-          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all"
+          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer"
           :class="
             activeTab === 'ui_design'
               ? 'border-indigo-600 text-indigo-600'
@@ -344,9 +402,10 @@ function handleClose() {
 
         <!-- Tab 2: Diagram & Flowchart -->
         <button
+          v-if="canGenerateDiagram"
           type="button"
           @click="activeTab = 'diagram'"
-          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all"
+          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all cursor-pointer"
           :class="
             activeTab === 'diagram'
               ? 'border-indigo-600 text-indigo-600'
