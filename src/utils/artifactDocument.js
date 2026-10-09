@@ -24,8 +24,17 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
   defaults.textContent = '@layer artifact-defaults { body { margin: 0; min-height: 100vh; } }'
   doc.head.prepend(defaults)
 
-  // Inject Google Fonts if not already authored
-  if (!doc.querySelector('link[href*="fonts.googleapis.com"]')) {
+  // Inject an authored font (only if the design explicitly declares one and it is
+  // not already referenced). Do NOT force Plus Jakarta/Playfair onto every design:
+  // when no font family is requested, the backend's Tailwind font-sans/font-serif
+  // resolve to the platform system stack, which preserves the intended look instead
+  // of imposing an unrequested visual identity.
+  const declaredFontFamily =
+    theme.fontFamily ||
+    theme.typography?.primary ||
+    null
+  const alreadyHasGoogleFonts = !!doc.querySelector('link[href*="fonts.googleapis.com"]')
+  if (declaredFontFamily && !alreadyHasGoogleFonts && !doc.querySelector('style[data-artifact-default-font]')) {
     const preconnect1 = doc.createElement('link')
     preconnect1.rel = 'preconnect'
     preconnect1.href = 'https://fonts.googleapis.com'
@@ -35,7 +44,7 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
     preconnect2.crossOrigin = 'anonymous'
     const fontLink = doc.createElement('link')
     fontLink.rel = 'stylesheet'
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700;800&family=Playfair+Display:ital,wght@0,600;1,600&family=JetBrains+Mono:wght@400;500&display=swap'
+    fontLink.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(declaredFontFamily.replace(/ /g, '+'))
     doc.head.append(preconnect1, preconnect2, fontLink)
   }
 
@@ -76,20 +85,24 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
         fontFamily.sans = [font, 'sans-serif']
       }
     }
+    // Only apply font families actually authored by the design (from HTML link/style
+    // tags or an explicit theme fontFamily/typography.primary). When none is declared,
+    // fall back to the platform system stack so Tailwind font-sans/font-serif render
+    // the backend's intended system-font look — nothing is forced in.
     if (theme.fontFamily && !fontFamily.sans) {
-      fontFamily.sans = [theme.fontFamily, 'sans-serif']
+      fontFamily.sans = [theme.fontFamily, 'system-ui', 'sans-serif']
     } else if (theme.typography?.primary && !fontFamily.sans) {
-      fontFamily.sans = [theme.typography.primary, 'sans-serif']
+      fontFamily.sans = [theme.typography.primary, 'system-ui', 'sans-serif']
     }
 
     if (!fontFamily.sans) {
-      fontFamily.sans = ['"Plus Jakarta Sans"', 'Inter', 'system-ui', 'sans-serif']
+      fontFamily.sans = ['system-ui', 'Segoe UI', 'Inter', 'sans-serif']
     }
     if (!fontFamily.serif) {
-      fontFamily.serif = ['"Playfair Display"', 'Georgia', 'serif']
+      fontFamily.serif = ['Georgia', 'Cambria', 'serif']
     }
     if (!fontFamily.mono) {
-      fontFamily.mono = ['"JetBrains Mono"', 'monospace']
+      fontFamily.mono = ['ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace']
     }
 
     const extend = { colors }

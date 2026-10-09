@@ -275,7 +275,10 @@ function handleSendToAi(payload) {
   }
 }
 
-const activeCodeTab = ref('react') // 'react' | 'html' | 'vue'
+// The backend compiler currently exports HTML + Vue only (no React/JSX/TSX), so
+// default to the HTML tab, which always has real content, instead of the React tab
+// that would just fall back to the same HTML while mislabeled as TSX.
+const activeCodeTab = ref('html') // 'html' | 'vue'
 
 const displayCode = computed(() => {
   const exports = props.data?.code_export || props.data?.implementation?.source || {}
@@ -286,28 +289,28 @@ const displayCode = computed(() => {
       exports.tsx ||
       exports.html ||
       rawHtml.value ||
-      `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
+      ''
     )
   }
   if (activeCodeTab.value === 'html') {
     return (
       exports.html ||
       rawHtml.value ||
-      `<!-- Belum ada kode antarmuka HTML. -->`
+      ''
     )
   }
   if (activeCodeTab.value === 'vue') {
     return (
       exports.vue ||
       props.data?.implementation?.source?.vue ||
-      `<!-- Belum ada kode antarmuka Vue. -->`
+      ''
     )
   }
   return (
     exports.react ||
     exports.html ||
     rawHtml.value ||
-    `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
+    ''
   )
 })
 
@@ -935,7 +938,11 @@ async function copyCode() {
             </div>
             <span v-if="isCopied" class="text-emerald-400 font-bold">✓ Kode disalin ke clipboard</span>
           </div>
-          <pre><code>{{ displayCode }}</code></pre>
+          <pre v-if="displayCode" class="max-h-[70vh] overflow-auto"><code>{{ displayCode }}</code></pre>
+          <div v-else class="flex flex-col items-center justify-center gap-2 text-center py-16 text-slate-500">
+            <Code class="w-7 h-7 opacity-40 mx-auto" />
+            <span class="text-xs">Belum ada kode untuk tab ini. Ketik prompt di AI Copilot untuk mulai mengompilasi desain.</span>
+          </div>
         </div>
       </div>
     </div>
@@ -1094,7 +1101,11 @@ async function copyCode() {
             </div>
             <span v-if="isCopied" class="text-emerald-400 font-bold">✓ Copied</span>
           </div>
-          <pre><code>{{ displayCode }}</code></pre>
+          <pre v-if="displayCode" class="max-h-[60vh] overflow-auto"><code>{{ displayCode }}</code></pre>
+          <div v-else class="flex flex-col items-center justify-center gap-2 text-center py-12 text-slate-500">
+            <Code class="w-6 h-6 opacity-40 mx-auto" />
+            <span class="text-[11px]">Belum ada kode untuk tab ini.</span>
+          </div>
         </div>
       </div>
 
