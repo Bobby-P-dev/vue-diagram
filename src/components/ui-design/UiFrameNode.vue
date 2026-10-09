@@ -26,6 +26,11 @@ import {
   ChevronRight,
   X,
   Target,
+  GripVertical,
+  Wifi,
+  Battery,
+  Signal,
+  Trash2,
 } from 'lucide-vue-next'
 
 import { formatAuditScore } from '../../utils/uiAudit.js'
@@ -91,18 +96,13 @@ function setCanvasMode(mode) {
   }
 }
 
+function handleFrameClick() {
+  if (props.id) {
+    store.selectedNodes.value = [props.id]
+  }
+}
+
 function handleWindowMessage(e) {
-  // Element selection — only process in edit/comment mode
-  if (e.data?.type === 'UI_COMPONENT_CLICKED' && e.data?.componentId) {
-    if (canvasMode.value === 'edit' || canvasMode.value === 'comment') {
-      store.setSelectedComponent(e.data.componentId)
-    }
-  }
-  if (e.data?.type === 'UI_ELEMENT_SELECTED' && e.data?.target) {
-    if (canvasMode.value === 'edit' || canvasMode.value === 'comment') {
-      store.setSelectedTarget(e.data.target, e.data.context)
-    }
-  }
   if (e.data?.type === 'RANCANGLAB_IFRAME_READY') {
     const iframeEl = sandboxIframe.value
     if (iframeEl?.contentWindow) {
@@ -321,6 +321,44 @@ function cycleMobileViewMode() {
   else viewMode.value = 'visual'
 }
 
+async function handleSwitchToWeb() {
+  if (store.isChatGenerating?.value) return
+  if (props.id) {
+    store.selectedNodes.value = [props.id]
+  }
+  const target = {
+    type: 'device',
+    id: props.id,
+    frame_id: props.id,
+  }
+  if (store.sendFollowUpChat) {
+    await store.sendFollowUpChat('ubah ke mode web', null, { target, scope: 'screen' })
+  }
+}
+
+async function handleSwitchToMobile() {
+  if (store.isChatGenerating?.value) return
+  if (props.id) {
+    store.selectedNodes.value = [props.id]
+  }
+  const target = {
+    type: 'device',
+    id: props.id,
+    frame_id: props.id,
+  }
+  if (store.sendFollowUpChat) {
+    await store.sendFollowUpChat('ubah ke mode mobile', null, { target, scope: 'screen' })
+  }
+}
+
+async function handleDeleteScreen() {
+  if (!props.id) return
+  const screenTitle = title.value || 'Screen'
+  const confirmed = window.confirm(`Apakah Anda yakin ingin menghapus screen "${screenTitle}" ini dari kanvas?`)
+  if (!confirmed) return
+  await store.deleteFrameNode(props.id)
+}
+
 async function copyCode() {
   try {
     await navigator.clipboard.writeText(displayCode.value)
@@ -338,7 +376,8 @@ async function copyCode() {
 <template>
   <div
     class="relative select-text transition-shadow group"
-    :style="{ width: `${effectiveWidth}px` }"
+    @click="handleFrameClick"
+    :style="{ width: device === 'mobile' ? `${Math.max(effectiveWidth, 480)}px` : `${effectiveWidth}px` }"
   >
     <!-- Vue Flow Connection Handles (LR and TB) -->
     <Handle
@@ -382,12 +421,17 @@ async function copyCode() {
       class="rounded-2xl border border-slate-700/80 bg-slate-900 shadow-2xl overflow-hidden flex flex-col transition-all duration-300"
       :style="{ minHeight: `${effectiveHeight}px` }"
     >
-      <!-- Browser Chrome Header Bar -->
+      <!-- Browser Chrome Header Bar (Acts as Drag Handle for Vue Flow) -->
       <div
-        class="h-10 px-2.5 sm:px-4 border-b border-slate-800 flex items-center justify-between gap-2 sm:gap-3 flex-shrink-0 select-none bg-slate-900 text-slate-200"
+        class="frame-drag-handle h-10 px-2.5 sm:px-4 border-b border-slate-800 flex items-center justify-between gap-2 sm:gap-3 flex-shrink-0 select-none bg-slate-900 text-slate-200 cursor-grab active:cursor-grabbing transition-colors"
+        title="Tahan & geser untuk memindahkan screen ini di kanvas"
       >
-        <!-- Left Group: Traffic Lights & Viewport Switcher (Always on Left, Never Cut Off) -->
+        <!-- Left Group: Drag Grip, Traffic Lights & Viewport Switcher -->
         <div class="flex items-center gap-2 flex-shrink-0">
+          <div class="p-0.5 text-slate-500 group-hover:text-indigo-400 transition-colors" title="Grip Handle">
+            <GripVertical class="w-3.5 h-3.5" />
+          </div>
+
           <!-- Traffic Light Buttons -->
           <div class="flex items-center gap-1.5">
             <span class="w-3 h-3 rounded-full bg-[#ef4444] inline-block shadow-inner"></span>
@@ -395,8 +439,8 @@ async function copyCode() {
             <span class="w-3 h-3 rounded-full bg-[#22c55e] inline-block shadow-inner"></span>
           </div>
 
-          <!-- Viewport preview controls (Desktop, Tablet, Mobile) - Always visible on front -->
-          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60 flex-shrink-0">
+          <!-- Viewport preview controls (Desktop, Tablet, Mobile) -->
+          <div class="nodrag flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60 flex-shrink-0">
             <button
               type="button"
               @click.stop="setViewportPreview('web')"
@@ -425,24 +469,43 @@ async function copyCode() {
               <Smartphone class="w-3 h-3" />
             </button>
           </div>
+
+          <!-- Quick Convert to Mobile Button (AI mode change) -->
+          <button
+            type="button"
+            @click.stop="handleSwitchToMobile"
+            :disabled="store.isChatGenerating?.value"
+            class="nodrag px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 text-white text-[10px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer shrink-0"
+            title="Ubah screen ini dari mode web desktop ke format mobile via AI"
+          >
+            <Smartphone class="w-3 h-3 text-white" />
+            <span v-if="effectiveWidth >= 1000">Ubah ke Mobile</span>
+          </button>
         </div>
 
-        <!-- Center: URL Address Bar (Visible when viewport is wide enough) -->
+        <!-- Center: URL Address Bar (Visible when viewport is wide >= 1200) or Title (>= 768) -->
         <div
-          v-if="effectiveWidth >= 800"
-          class="flex-1 max-w-sm h-6 px-3 rounded-md border text-[11px] font-mono flex items-center gap-2 truncate bg-slate-950/70 border-slate-800 text-slate-400"
+          v-if="effectiveWidth >= 1200"
+          class="nodrag flex-1 max-w-xs h-6 px-3 rounded-md border text-[11px] font-mono flex items-center gap-2 truncate bg-slate-950/70 border-slate-800 text-slate-400 shrink"
         >
           <Lock class="w-3 h-3 text-emerald-500 flex-shrink-0" />
           <span class="truncate">https://app.{{ String(title).toLowerCase().replace(/[^a-z0-9]+/g, '-') }}.io</span>
           <RotateCw class="w-2.5 h-2.5 ml-auto text-slate-400 opacity-60" />
         </div>
+        <div
+          v-else-if="effectiveWidth >= 768"
+          class="nodrag flex items-center gap-1.5 px-2 py-0.5 rounded text-[11px] font-semibold text-slate-400 truncate max-w-[140px] shrink"
+          :title="title"
+        >
+          <span class="truncate">{{ title }}</span>
+        </div>
 
-        <!-- Right Group: Badges, Review, Canvas Edit Mode, View Mode, Copy -->
-        <div class="flex items-center gap-1.5 flex-shrink-0">
-          <AntiSlopBadge :compact="effectiveWidth < 700" :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
+        <!-- Right Group: Badges, Review, Canvas Edit Mode, View Mode, Copy, Delete -->
+        <div class="nodrag flex items-center gap-1.5 flex-shrink-0">
+          <AntiSlopBadge :compact="effectiveWidth < 1200" :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
           
           <ReviewCommentPin
-            :compact="effectiveWidth < 700"
+            :compact="effectiveWidth < 1200"
             :comments="reviewComments"
             @add-comment="handleAddComment"
             @resolve-comment="handleResolveComment"
@@ -450,94 +513,105 @@ async function copyCode() {
           />
 
           <!-- Canvas Edit Mode Switcher (PREVIEW / EDIT / COMMENT) -->
-          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60">
+          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60 shrink-0">
             <button
               type="button"
               @click.stop="setCanvasMode('preview')"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="canvasMode === 'preview' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
               title="Preview Mode: Navigasi dan link aktif, interaksi normal"
             >
               <Navigation2 class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Preview</span>
+              <span v-if="effectiveWidth >= 1200">Preview</span>
             </button>
             <button
               type="button"
               @click.stop="setCanvasMode('edit')"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="canvasMode === 'edit' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
               title="Edit Mode: Klik komponen atau seksi untuk memilih target patch AI"
             >
               <MousePointer2 class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Edit</span>
+              <span v-if="effectiveWidth >= 1200">Edit</span>
             </button>
             <button
               type="button"
               @click.stop="setCanvasMode('comment')"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="canvasMode === 'comment' ? 'bg-amber-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
               title="Comment Mode: Klik elemen untuk memberi komentar per komponen"
             >
               <MessageSquare class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Comment</span>
+              <span v-if="effectiveWidth >= 1200">Comment</span>
             </button>
           </div>
 
-          <span v-if="effectiveWidth >= 950" class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-300 border border-slate-700/60 hidden sm:inline-block">
+          <span v-if="effectiveWidth >= 1280" class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800/80 text-slate-300 border border-slate-700/60 hidden sm:inline-block shrink-0">
             {{ effectiveWidth }} × {{ effectiveHeight }}
           </span>
 
-          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60">
+          <div class="flex items-center rounded-lg border border-slate-700/60 p-0.5 bg-slate-950/60 shrink-0">
             <button
               type="button"
               @click.stop="viewMode = 'visual'"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="viewMode === 'visual' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Canvas Native Modular Vue Components"
             >
               <Eye class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Canvas</span>
+              <span v-if="effectiveWidth >= 1200">Canvas</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'sandbox'"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="viewMode === 'sandbox' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Isolated Iframe Sandbox (Zero CSS Bleed)"
             >
               <Box class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Sandbox</span>
+              <span v-if="effectiveWidth >= 1200">Sandbox</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'code'"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="viewMode === 'code' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Lihat Kode"
             >
               <Code class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Code</span>
+              <span v-if="effectiveWidth >= 1200">Code</span>
             </button>
             <button
               type="button"
               @click.stop="viewMode = 'spec'"
-              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer"
+              class="px-1.5 py-0.5 rounded text-[10px] font-semibold flex items-center gap-1 transition-colors cursor-pointer shrink-0"
               :class="viewMode === 'spec' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white'"
               title="Spesifikasi Halaman"
             >
               <FileText class="w-3 h-3" />
-              <span v-if="effectiveWidth >= 700">Spec</span>
+              <span v-if="effectiveWidth >= 1200">Spec</span>
             </button>
           </div>
 
+          <!-- Copy Code Button -->
           <button
             type="button"
             @click.stop="copyCode"
-            class="p-1 rounded-lg border border-slate-700/60 text-slate-300 hover:text-white hover:bg-slate-800 transition-colors cursor-pointer"
+            class="p-1 rounded-lg border border-slate-700/60 bg-slate-800 text-slate-300 hover:text-white hover:bg-slate-700 transition-colors cursor-pointer shrink-0"
             :title="isCopied ? 'Tersalin!' : 'Salin Kode UI'"
           >
             <Check v-if="isCopied" class="w-3.5 h-3.5 text-emerald-400" />
             <Copy v-else class="w-3.5 h-3.5" />
+          </button>
+
+          <!-- Delete Screen Button -->
+          <button
+            type="button"
+            @click.stop="handleDeleteScreen"
+            class="p-1 rounded-lg border border-slate-700/60 bg-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/20 transition-colors cursor-pointer shrink-0"
+            title="Hapus Screen ini dari kanvas"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
           </button>
         </div>
       </div>
@@ -551,6 +625,7 @@ async function copyCode() {
             mode="canvas"
             :viewport="activeViewport"
             :version="artifactVersion"
+            :frame-id="id"
           />
         </div>
 
@@ -561,6 +636,7 @@ async function copyCode() {
             mode="sandbox"
             :viewport="activeViewport"
             :version="artifactVersion"
+            :frame-id="id"
           />
         </div>
 
@@ -948,54 +1024,136 @@ async function copyCode() {
     </div>
 
     <!-- ==================== MOBILE SMARTPHONE FRAME ==================== -->
-    <div
-      v-else
-      class="mx-auto rounded-[48px] border-[8px] border-slate-800 bg-slate-950 shadow-2xl overflow-hidden flex flex-col relative transition-all duration-300 ring-1 ring-white/10"
-      :style="{ width: `${width}px`, minHeight: `${height}px` }"
-    >
-      <!-- Dynamic Island / Top Notch Speaker -->
-      <div class="absolute top-2.5 left-1/2 -translate-x-1/2 w-24 h-5 rounded-full bg-black flex items-center justify-center gap-2 z-40 border border-white/5">
-        <span class="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-800"></span>
-        <span class="w-2 h-2 rounded-full bg-indigo-950 border border-indigo-900"></span>
+    <div v-else class="flex flex-col items-center select-text w-full">
+      <!-- Mobile Dedicated Frame Header Bar (Clean Control Dock with Drag Handle) -->
+      <div
+        class="frame-drag-handle w-full mb-3 px-3 py-2 rounded-xl bg-slate-900/95 border border-slate-800 shadow-xl flex items-center justify-between gap-2 select-none cursor-grab active:cursor-grabbing backdrop-blur-md text-slate-200 ring-1 ring-white/5 transition-all"
+        :style="{ maxWidth: `${Math.max(width, 440)}px` }"
+        title="Tahan & geser untuk memindahkan screen ini di kanvas"
+      >
+        <!-- Left: Drag Grip + Title + Ubah ke Web Button -->
+        <div class="flex items-center gap-2 min-w-0">
+          <div class="p-0.5 text-slate-500 group-hover:text-indigo-400 transition-colors shrink-0" title="Grip Handle (Tahan & geser untuk memindahkan screen)">
+            <GripVertical class="w-3.5 h-3.5" />
+          </div>
+
+          <div class="flex items-center gap-1.5 min-w-0 shrink">
+            <Smartphone class="w-3.5 h-3.5 text-indigo-400 shrink-0" />
+            <span class="text-xs font-bold text-slate-200 truncate max-w-[110px]" :title="title">{{ title }}</span>
+          </div>
+
+          <!-- Clickable Button to Switch to Web View -->
+          <button
+            type="button"
+            @click.stop="handleSwitchToWeb"
+            :disabled="store.isChatGenerating?.value"
+            class="nodrag px-2 py-0.5 rounded-md bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 disabled:opacity-40 text-white text-[10px] font-bold flex items-center gap-1 transition-all shadow-xs cursor-pointer shrink-0"
+            title="Ubah screen ini dari mode mobile ke format web desktop"
+          >
+            <Monitor class="w-3 h-3 text-white" />
+            <span>Ubah ke Web</span>
+          </button>
+        </div>
+
+        <!-- Right: Action Controls (nodrag prevents dragging when clicking buttons) -->
+        <div class="nodrag flex items-center gap-1.5 shrink-0">
+          <AntiSlopBadge :compact="true" :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
+          <ReviewCommentPin
+            :compact="true"
+            :comments="reviewComments"
+            @add-comment="handleAddComment"
+            @resolve-comment="handleResolveComment"
+            @send-to-ai="handleSendToAi"
+          />
+
+          <!-- View Mode Switcher (Compact Icons on mobile) -->
+          <div class="flex items-center rounded-lg border border-slate-700/70 p-0.5 bg-slate-950/70">
+            <button
+              type="button"
+              @click.stop="viewMode = 'visual'"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="viewMode === 'visual' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Canvas Editor"
+            >
+              <Eye class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              @click.stop="viewMode = 'sandbox'"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="viewMode === 'sandbox' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Sandbox Preview"
+            >
+              <Box class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              @click.stop="viewMode = 'code'"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="viewMode === 'code' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Lihat Kode"
+            >
+              <Code class="w-3 h-3" />
+            </button>
+            <button
+              type="button"
+              @click.stop="viewMode = 'spec'"
+              class="p-1 rounded text-[10px] font-semibold transition-colors cursor-pointer"
+              :class="viewMode === 'spec' ? 'bg-indigo-600 text-white shadow-xs' : 'text-slate-400 hover:text-white'"
+              title="Spesifikasi Halaman"
+            >
+              <FileText class="w-3 h-3" />
+            </button>
+          </div>
+
+          <!-- Copy Code Button -->
+          <button
+            type="button"
+            @click.stop="copyCode"
+            class="p-1 rounded-lg border border-slate-700/60 bg-slate-800 text-slate-300 hover:text-white transition-colors cursor-pointer"
+            :title="isCopied ? 'Tersalin!' : 'Salin Kode UI'"
+          >
+            <Check v-if="isCopied" class="w-3.5 h-3.5 text-emerald-400" />
+            <Copy v-else class="w-3.5 h-3.5" />
+          </button>
+
+          <!-- Delete Screen Button -->
+          <button
+            type="button"
+            @click.stop="handleDeleteScreen"
+            class="p-1 rounded-lg border border-slate-700/60 bg-slate-800 text-slate-400 hover:text-rose-400 hover:border-rose-500/50 hover:bg-rose-500/10 transition-colors cursor-pointer shrink-0"
+            title="Hapus Screen ini dari kanvas"
+          >
+            <Trash2 class="w-3.5 h-3.5" />
+          </button>
+        </div>
       </div>
 
-      <!-- Controls Overlay on Top Right Outside Frame -->
-      <div class="absolute -top-9 right-0 flex items-center gap-1.5 z-50">
-        <AntiSlopBadge :foundation-name="theme?.palette || 'Custom Design System'" :audit-data="auditState" />
-        <ReviewCommentPin
-          :comments="reviewComments"
-          @add-comment="handleAddComment"
-          @resolve-comment="handleResolveComment"
-          @send-to-ai="handleSendToAi"
-        />
+      <!-- Mobile Smartphone Hardware Shell -->
+      <div
+        class="mx-auto rounded-[48px] border-[8px] border-slate-800 bg-slate-950 shadow-2xl overflow-hidden flex flex-col relative transition-all duration-300 ring-1 ring-white/10"
+        :style="{ width: `${width}px`, minHeight: `${height}px` }"
+      >
+        <!-- Native Mobile Status Bar & Dynamic Island (Pure Hardware Mockup) -->
+        <div class="h-10 w-full bg-slate-900/60 border-b border-white/5 flex items-center justify-between px-6 select-none z-40 relative flex-shrink-0 backdrop-blur-xs">
+          <!-- Left: Native Time -->
+          <span class="text-[12px] font-semibold text-slate-300 font-mono">9:41</span>
 
-        <span class="text-[10px] font-mono font-semibold px-2 py-0.5 rounded-md bg-slate-800 text-slate-300 border border-slate-700 shadow-xs">
-          375 × 812 • iOS
-        </span>
-        <button
-          type="button"
-          @click.stop="cycleMobileViewMode"
-          class="px-2 py-0.5 rounded text-[10px] font-semibold bg-slate-800 text-slate-300 hover:text-white border border-slate-700 shadow-xs flex items-center gap-1"
-          title="Ganti Mode Tampilan (Canvas / Sandbox / Code / Spec)"
-        >
-          <Eye v-if="viewMode === 'visual'" class="w-3 h-3 text-indigo-400" />
-          <Box v-else-if="viewMode === 'sandbox'" class="w-3 h-3 text-emerald-400" />
-          <Code v-else-if="viewMode === 'code'" class="w-3 h-3 text-amber-400" />
-          <FileText v-else class="w-3 h-3 text-sky-400" />
-          <span class="capitalize">{{ viewMode === 'visual' ? 'Canvas' : viewMode }}</span>
-        </button>
-        <button
-          type="button"
-          @click.stop="copyCode"
-          class="p-1 rounded bg-slate-800 text-slate-300 hover:text-white border border-slate-700 shadow-xs"
-        >
-          <Check v-if="isCopied" class="w-3 h-3 text-emerald-400" />
-          <Copy v-else class="w-3 h-3" />
-        </button>
-      </div>
+          <!-- Center: Dynamic Island -->
+          <div class="w-24 h-5 rounded-full bg-black flex items-center justify-center gap-2 border border-white/10 shadow-xs">
+            <span class="w-2.5 h-2.5 rounded-full bg-slate-900 border border-slate-800"></span>
+            <span class="w-2 h-2 rounded-full bg-indigo-950/80 border border-indigo-900/60"></span>
+          </div>
 
-      <!-- Mobile Content Area -->
-      <div class="flex-1 flex flex-col pt-3 overflow-y-auto relative">
+          <!-- Right: Mobile Indicators -->
+          <div class="flex items-center gap-1.5 text-slate-300 text-[11px]">
+            <Signal class="w-3 h-3" />
+            <Wifi class="w-3 h-3" />
+            <Battery class="w-4 h-4" />
+          </div>
+        </div>
+        <!-- Mobile Content Area -->
+        <div class="flex-1 flex flex-col overflow-y-auto relative">
         <!-- Mobile Visual Canvas Mode: Single Source of Visual Truth with Canvas Editor Overlay -->
         <div v-if="viewMode === 'visual'" class="flex-1 flex flex-col min-h-[400px] relative">
           <ArtifactPreview
@@ -1003,6 +1161,7 @@ async function copyCode() {
             mode="canvas"
             viewport="mobile"
             :version="artifactVersion"
+            :frame-id="id"
           />
         </div>
 
@@ -1013,6 +1172,7 @@ async function copyCode() {
             mode="sandbox"
             viewport="mobile"
             :version="artifactVersion"
+            :frame-id="id"
           />
         </div>
 
@@ -1114,6 +1274,7 @@ async function copyCode() {
         <div class="w-28 h-1 rounded-full bg-slate-600/60"></div>
       </div>
     </div>
+  </div>
 
     <!-- Vue Flow Output Handles (LR and TB) -->
     <Handle

@@ -100,6 +100,7 @@ watch(
     const regularNodes = positioned.map((node) => ({
       ...node,
       class: selected.includes(node.id) ? 'targeted-node' : '',
+      ...(node.type === 'ui_frame' ? { dragHandle: '.frame-drag-handle' } : {}),
     }))
 
     // Generate visual swimlane strip nodes behind regular nodes ONLY IF swimlane
@@ -185,6 +186,7 @@ function handleAutoLayout() {
   const regularNodes = positioned.map((node) => ({
     ...node,
     class: '',
+    ...(node.type === 'ui_frame' ? { dragHandle: '.frame-drag-handle' } : {}),
   }))
 
   layoutedNodes.value = [...laneNodes, ...regularNodes]

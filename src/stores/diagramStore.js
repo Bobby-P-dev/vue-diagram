@@ -292,6 +292,40 @@ export function useDiagramStore() {
     }
   }
 
+  async function deleteFrameNode(nodeId) {
+    if (!activeProject.value?.id || !nodeId) return false
+    if (nodes.value.length <= 1) {
+      alert('Tidak dapat menghapus screen: Proyek harus memiliki minimal satu screen di kanvas.')
+      return false
+    }
+
+    const updatedNodes = nodes.value.filter(n => String(n.id) !== String(nodeId))
+    const updatedEdges = edges.value.filter(e => String(e.source) !== String(nodeId) && String(e.target) !== String(nodeId))
+
+    nodes.value = updatedNodes
+    edges.value = updatedEdges
+    selectedNodes.value = selectedNodes.value.filter(id => String(id) !== String(nodeId))
+    if (selectedTarget.value?.frame_id === nodeId) {
+      clearSelectedTarget()
+    }
+
+    if (activeProject.value) {
+      activeProject.value.current_nodes = [...updatedNodes]
+      activeProject.value.current_edges = [...updatedEdges]
+    }
+
+    try {
+      await api.updateProjectGraph(activeProject.value.id, {
+        nodes: updatedNodes,
+        edges: updatedEdges,
+      })
+      return true
+    } catch (err) {
+      console.error('Failed to delete screen from graph:', err)
+      return false
+    }
+  }
+
   function sortProjectsList() {
     projectsList.value.sort((a, b) => {
       const pinA = a.is_pinned ? 1 : 0
@@ -695,37 +729,53 @@ export function useDiagramStore() {
       isChatGenerating.value = true
       uiStreamProgress.value = {
         stage: 'generating',
-        message: 'Merancang screen baru di samping kanvas...',
-        progressPercent: 18,
+        message: 'Menganalisis kebutuhan & arsitektur screen baru...',
+        progressPercent: 15,
         elapsedSeconds: 0,
         tokens: 0,
         sections: [
-          'Header & Navigasi Terpadu (Screen 1)',
-          'Layout Utama Screen Baru',
-          'Komponen & Konten Halaman',
+          'Analisis Kebutuhan & Arsitektur Screen',
+          'Penyelarasan Header & Brand Identitas',
+          'Perakitan Layout & Komponen Baru',
           'Validasi & Penataan Kanvas Multi-Screen'
         ],
-        activeSection: 'Header & Navigasi Terpadu (Screen 1)'
+        activeSection: 'Analisis Kebutuhan & Arsitektur Screen'
       }
 
       progressTimer = setInterval(() => {
         if (!uiStreamProgress.value) return
-        uiStreamProgress.value.elapsedSeconds++
-        const sec = uiStreamProgress.value.elapsedSeconds
-        if (sec <= 4) {
-          uiStreamProgress.value.activeSection = 'Header & Navigasi Terpadu (Screen 1)'
-          uiStreamProgress.value.progressPercent = Math.min(35, 18 + sec * 4)
-        } else if (sec <= 12) {
-          uiStreamProgress.value.activeSection = 'Layout Utama Screen Baru'
-          uiStreamProgress.value.progressPercent = Math.min(65, 35 + (sec - 4) * 3)
-        } else if (sec <= 24) {
-          uiStreamProgress.value.activeSection = 'Komponen & Konten Halaman'
-          uiStreamProgress.value.progressPercent = Math.min(88, 65 + (sec - 12) * 2)
+        const currentSec = (uiStreamProgress.value.elapsedSeconds || 0) + 1
+        let currentPercent = uiStreamProgress.value.progressPercent || 15
+        let currentActive = uiStreamProgress.value.activeSection
+        let currentMessage = uiStreamProgress.value.message
+
+        if (currentSec <= 5) {
+          currentActive = 'Analisis Kebutuhan & Arsitektur Screen'
+          currentPercent = Math.min(30, 15 + currentSec * 3)
+          currentMessage = 'Menganalisis kebutuhan & arsitektur screen baru...'
+        } else if (currentSec <= 15) {
+          currentActive = 'Penyelarasan Header & Brand Identitas'
+          currentPercent = Math.min(55, 30 + (currentSec - 5) * 2.5)
+          currentMessage = 'Menyelaraskan header, tema & identitas brand...'
+        } else if (currentSec <= 30) {
+          currentActive = 'Perakitan Layout & Komponen Baru'
+          currentPercent = Math.min(85, 55 + (currentSec - 15) * 2)
+          currentMessage = 'Merakit tata letak dan komponen Tailwind...'
         } else {
-          uiStreamProgress.value.activeSection = 'Validasi & Penataan Kanvas Multi-Screen'
-          if (uiStreamProgress.value.progressPercent < 94) {
-            uiStreamProgress.value.progressPercent += 1
+          currentActive = 'Validasi & Penataan Kanvas Multi-Screen'
+          currentMessage = 'Memvalidasi kode & menyusun posisi kanvas...'
+          if (currentPercent < 94) {
+            currentPercent += 1
           }
+        }
+
+        uiStreamProgress.value = {
+          ...uiStreamProgress.value,
+          elapsedSeconds: currentSec,
+          progressPercent: Math.round(currentPercent),
+          activeSection: currentActive,
+          message: currentMessage,
+          tokens: Math.min(2400, currentSec * 35),
         }
       }, 1000)
     }
@@ -1082,5 +1132,6 @@ export function useDiagramStore() {
     clearNodeSelection,
     clearError,
     asyncJob,
+    deleteFrameNode,
   }
 }

@@ -90,22 +90,23 @@ const scores = computed(() => validation.value?.score || null)
 </script>
 
 <template>
-  <div class="relative inline-block select-none text-left">
+  <div class="relative inline-block select-none text-left shrink-0">
     <!-- Trigger Badge -->
     <button
       type="button"
       @click.stop="isOpen = !isOpen"
-      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all cursor-pointer shadow-xs"
+      class="inline-flex items-center gap-1.5 rounded-md text-[10px] font-mono font-semibold border transition-all cursor-pointer shadow-xs shrink-0"
       :class="[
+        compact ? 'p-1' : 'px-2.5 py-1',
         isOpen
           ? 'bg-slate-800 text-white border-slate-600 ring-1 ring-white/10'
           : 'bg-slate-800/90 text-slate-300 border-slate-700/80 hover:bg-slate-800 hover:border-slate-600'
       ]"
-      title="Status Audit Kualitas AI & Anti-Slop"
+      :title="`Status Audit Kualitas: ${badgeConfig.label}`"
     >
-      <component :is="badgeConfig.icon" class="w-3 h-3" :class="badgeConfig.iconColor" />
+      <component :is="badgeConfig.icon" class="w-3.5 h-3.5" :class="badgeConfig.iconColor" />
       <span v-if="!compact">Quality Audit</span>
-      <span class="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold border" :class="badgeConfig.color">
+      <span v-if="!compact" class="px-1.5 py-0.2 rounded font-mono text-[9px] font-bold border" :class="badgeConfig.color">
         {{ badgeConfig.label }}
       </span>
     </button>

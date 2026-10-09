@@ -47,12 +47,13 @@ function handleSendToAi(comment) {
     <button
       type="button"
       @click.stop="isAdding = !isAdding"
-      class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-[10px] font-mono font-semibold border transition-all cursor-pointer shadow-xs"
-      :class="
+      class="inline-flex items-center gap-1.5 rounded-md text-[10px] font-mono font-semibold border transition-all cursor-pointer shadow-xs shrink-0"
+      :class="[
+        compact ? 'p-1' : 'px-2.5 py-1',
         isAdding || comments.some(c => c.status === 'Open')
           ? 'bg-amber-500/15 text-amber-400 border-amber-500/40'
           : 'bg-slate-800/90 text-slate-300 border-slate-700/80 hover:text-white'
-      "
+      ]"
       title="Beri Masukan Desain / Review Pins"
     >
       <MessageSquare class="w-3 h-3" />

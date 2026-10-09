@@ -22,6 +22,10 @@ const props = defineProps({
     type: [Number, String],
     default: 1,
   },
+  frameId: {
+    type: String,
+    default: '',
+  },
 })
 
 const store = useDiagramStore()
@@ -75,12 +79,21 @@ function handleIframeMessage(e) {
     if (store.canvasMode.value === 'preview') {
       store.setCanvasMode('edit')
     }
-    store.setSelectedTarget(e.data.target, e.data.context)
+    if (props.frameId) {
+      store.selectedNodes.value = [props.frameId]
+    }
+    store.setSelectedTarget({
+      ...e.data.target,
+      frame_id: props.frameId,
+    }, e.data.context)
   }
 
   if (e.data.type === 'UI_COMPONENT_CLICKED' && e.data.componentId) {
     if (store.canvasMode.value === 'preview') {
       store.setCanvasMode('edit')
+    }
+    if (props.frameId) {
+      store.selectedNodes.value = [props.frameId]
     }
     store.setSelectedComponent(e.data.componentId)
   }
@@ -93,6 +106,32 @@ function handleIframeMessage(e) {
     console.log('[ArtifactPreview] Intercepted navigation:', e.data.href)
   }
 }
+
+// Scoped selection guard: Only show the bottom patch bar if the selected target belongs to this specific frame
+const isTargetSelectedHere = computed(() => {
+  const target = store.selectedTarget.value
+  if (!target) return false
+
+  // Strict match by frameId if available
+  if (target.frame_id && props.frameId) {
+    return target.frame_id === props.frameId
+  }
+
+  // Fallback: verify target element/section exists in this artifact's markup
+  const targetId = target.id
+  const sectionId = target.section_id
+  const html = rawHtml.value || ''
+  if (!html) return false
+
+  if (targetId && (html.includes(`data-rl-id="${targetId}"`) || html.includes(`id="${targetId}"`))) {
+    return true
+  }
+  if (sectionId && (html.includes(`data-rl-id="${sectionId}"`) || html.includes(`id="${sectionId}"`))) {
+    return true
+  }
+
+  return false
+})
 
 function syncModeToIframe() {
   const win = iframeRef.value?.contentWindow
@@ -314,7 +353,7 @@ const sandboxDoc = computed(() => {
 
       <!-- Canvas Editor Overlay (Selection Pill) -->
       <div
-        v-if="mode === 'canvas' && (store.canvasMode.value === 'edit' || store.canvasMode.value === 'comment') && store.selectedTarget.value"
+        v-if="mode === 'canvas' && (store.canvasMode.value === 'edit' || store.canvasMode.value === 'comment') && isTargetSelectedHere"
         class="sticky bottom-3 mx-4 p-2.5 rounded-xl bg-slate-900/95 backdrop-blur-md border border-indigo-500/60 shadow-2xl flex items-center justify-between gap-3 text-xs text-slate-200 z-30 transition-all animate-in fade-in slide-in-from-bottom-2 duration-200"
       >
         <div class="flex items-center gap-2.5 min-w-0">
