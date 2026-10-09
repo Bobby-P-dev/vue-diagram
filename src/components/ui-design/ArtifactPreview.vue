@@ -1,6 +1,7 @@
 <script setup>
 import { ref, computed, watch, onMounted, onBeforeUnmount } from 'vue'
 import { Target, ChevronRight, X, FileText } from 'lucide-vue-next'
+import { buildArtifactDocument } from '../../utils/artifactDocument.js'
 import { useDiagramStore } from '../../stores/diagramStore.js'
 
 const props = defineProps({
@@ -38,9 +39,11 @@ const rawHtml = computed(() => {
   )
 })
 
+const sourceCss = computed(() => props.artifact?.implementation?.source?.css || props.artifact?.code_export?.css || '')
+
 // Deterministic source hash for reliable iframe cache busting / reactivity
 const sourceHash = computed(() => {
-  const str = rawHtml.value || ''
+  const str = JSON.stringify([rawHtml.value, sourceCss.value, theme.value])
   let hash = 0
   for (let i = 0; i < str.length; i++) {
     hash = ((hash << 5) - hash) + str.charCodeAt(i)
@@ -59,7 +62,7 @@ const theme = computed(() => {
 
 // Listen for messages from the iframe (element selection, navigation intercept, etc.)
 function handleIframeMessage(e) {
-  if (!e.data) return
+  if (!e.data || e.source !== iframeRef.value?.contentWindow) return
 
   // In sandbox mode, ignore interactive editor selection
   if (props.mode === 'sandbox') return
@@ -125,57 +128,8 @@ const sandboxDoc = computed(() => {
   const htmlContent = rawHtml.value
   if (!htmlContent) return ''
 
-  const isExplicitDark = theme.value?.mode === 'dark'
-  const customPrimary = theme.value?.primary
-
-  const tailwindThemeConfig = customPrimary
-    ? `tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: '${customPrimary}',
-            primary: '${customPrimary}'
-          }
-        }
-      }
-    }`
-    : `tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {}
-      }
-    }`
-
   const isCanvas = props.mode === 'canvas'
-
-  return `<!DOCTYPE html>
-<html lang="en"${isExplicitDark ? ' class="dark"' : ''}>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"><\/script>
-  <script>
-    ${tailwindThemeConfig}
-  <\/script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <style>
-    body {
-      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 0;
-      padding: 0;
-      min-height: 100vh;
-      overflow-x: hidden;
-      background-color: ${isExplicitDark ? '#020617' : 'transparent'};
-      color: ${isExplicitDark ? '#f1f5f9' : 'inherit'};
-    }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
-
+  const editorStyles = `
     ${
       isCanvas
         ? `
@@ -217,12 +171,8 @@ const sandboxDoc = computed(() => {
     #rl-mode-badge { display: none !important; }
     `
     }
-  <\/style>
-<\/head>
-<body class="${isExplicitDark ? 'dark' : ''}">
-  <div id="rl-mode-badge">EDIT</div>
-  ${htmlContent}
-  <script>
+  `
+  const editorScript = `
     (function() {
       var isCanvasMode = ${isCanvas};
       var currentMode = isCanvasMode ? 'preview' : 'preview';
@@ -329,9 +279,11 @@ const sandboxDoc = computed(() => {
         window.parent.postMessage({ type: 'RANCANGLAB_IFRAME_READY' }, '*');
       } catch (e) {}
     })();
-  <\/script>
-<\/body>
-<\/html>`
+  `
+  return buildArtifactDocument({
+    html: htmlContent, css: sourceCss.value, theme: theme.value,
+    editorStyles, editorScript, canvas: isCanvas,
+  })
 })
 </script>
 

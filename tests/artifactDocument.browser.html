@@ -1,0 +1,47 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Artifact preview regressions</title>
+<pre id="result">RUNNING</pre>
+<script type="module">
+import { buildArtifactDocument } from '../src/utils/artifactDocument.js'
+import { formatAuditScore, summarizeAudit } from '../src/utils/uiAudit.js'
+const result = document.getElementById('result')
+let checks = 0
+function assert(ok, message) { if (!ok) throw Error(message); checks++ }
+const parse = html => new DOMParser().parseFromString(html, 'text/html')
+try {
+  const input = '<!doctype html><html lang="id" class="editorial"><head><title>Journal</title><link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Literata"><style>body { font-family: Georgia, serif; background: rgb(250, 244, 230); margin: 19px; }</style></head><body class="journal" data-layout="editorial"><h1 data-rl-id="headline">Cerita</h1></body></html>'
+  const output = buildArtifactDocument({ html: input, css: 'h1 { color: rgb(95, 32, 32); }', theme: { mode: 'dark' }, canvas: true, editorScript: 'window.bridgePresent = true' })
+  const doc = parse(output)
+  assert(doc.querySelectorAll('html').length === 1 && doc.querySelectorAll('body').length === 1, 'No nested document wrappers')
+  assert(doc.documentElement.lang === 'id' && doc.documentElement.classList.contains('editorial'), 'Preserve document attributes')
+  assert(doc.body.className === 'journal' && doc.body.dataset.layout === 'editorial', 'Preserve body attributes')
+  assert(doc.head.querySelector('title').textContent === 'Journal' && doc.head.querySelector('link').href.includes('Literata'), 'Preserve head and fonts')
+  assert(doc.querySelector('[data-artifact-source="css"]').textContent.includes('95, 32, 32'), 'Use separately returned CSS')
+  assert(doc.querySelector('[data-rl-id="headline"]') && doc.querySelector('#rl-mode-badge') && doc.body.lastElementChild.textContent.includes('bridgePresent'), 'Preserve selection bridge and IDs')
+  assert(!output.includes('family=Inter') && !output.includes('#020617'), 'No forced Inter or dark slate')
+  const fragment = parse(buildArtifactDocument({ html: '<main class="bespoke">Hello</main>' }))
+  assert(fragment.body.querySelector('main') && fragment.head.querySelector('meta[name="viewport"]'), 'Normalize fragments')
+  const configured = parse(buildArtifactDocument({ html: '<script src="https://cdn.tailwindcss.com"><\/script><script>tailwind.config = { theme: { fontFamily: { sans: ["Georgia"] } } }<\/script><main>Test</main>' }))
+  assert(configured.querySelectorAll('script[src*="tailwind"]').length === 1, 'No duplicate Tailwind runtime')
+  assert([...configured.scripts].filter(s => s.textContent.includes('tailwind.config')).length === 1 && configured.documentElement.textContent.includes('Georgia'), 'Preserve authored Tailwind config')
+  const escaped = parse(buildArtifactDocument({ html: '<main>Safe</main>', css: '/* </style><script id="injected">bad()<\/script> */', theme: { primary: '<\/script><script id="theme-injected">' } }))
+  assert(!escaped.querySelector('#injected') && !escaped.querySelector('#theme-injected'), 'CSS and theme cannot escape injected elements')
+  assert(formatAuditScore(null) === '—' && formatAuditScore(undefined) === '—' && formatAuditScore(NaN) === '—' && formatAuditScore(0) === '0/10', 'Scores distinguish missing from zero')
+  assert(summarizeAudit(null) === 'unavailable' && summarizeAudit({ validation: { status: 'pass' } }) === 'unavailable', 'Incomplete audits are not verified')
+  assert(summarizeAudit(Object.fromEntries(['validation','requirement_coverage','anti_slop','visual_review'].map(k => [k, { status: 'pass' }]))) === 'pass', 'Only complete passes are verified')
+  assert(summarizeAudit({ visual_review: { status: 'fail' } }) === 'fail', 'Visual review failures affect badge')
+  // Verify browser-computed style with external runtimes stripped for an offline test.
+  doc.querySelectorAll('script, link').forEach(el => el.remove())
+  const frame = document.createElement('iframe')
+  const loaded = new Promise(resolve => frame.onload = resolve)
+  frame.srcdoc = doc.documentElement.outerHTML
+  document.body.append(frame)
+  await loaded
+  const styles = frame.contentWindow.getComputedStyle(frame.contentDocument.body)
+  assert(styles.fontFamily.includes('Georgia') && styles.backgroundColor === 'rgb(250, 244, 230)' && styles.marginTop === '19px', 'Authored typography, palette, and spacing render unchanged')
+  assert(frame.contentWindow.getComputedStyle(frame.contentDocument.querySelector('h1')).color === 'rgb(95, 32, 32)', 'Separate CSS renders')
+  result.textContent = `PASS: ${checks} assertions`
+  document.title = 'PASS'
+} catch (error) { result.textContent = 'FAIL: ' + error.message; document.title = 'FAIL' }
+</script>

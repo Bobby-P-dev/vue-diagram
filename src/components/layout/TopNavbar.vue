@@ -3,7 +3,6 @@ import { computed } from 'vue'
 import {
   Plus,
   Layers,
-  LayoutGrid,
   Monitor,
   Smartphone,
   ShieldCheck,
@@ -18,7 +17,7 @@ import {
 const props = defineProps({
   currentView: {
     type: String,
-    default: 'workspace', // 'workspace' | 'foundations' | 'templates'
+    default: 'workspace', // 'workspace' | 'foundations'
   },
   activeProjectTitle: {
     type: String,
@@ -129,21 +128,6 @@ const emit = defineEmits([
       >
         <Layers class="w-3 h-3" />
         <span>Foundations</span>
-      </button>
-
-      <button
-        v-if="canGenerateUi"
-        type="button"
-        @click="emit('navigate', 'templates')"
-        class="px-3 py-1 rounded-md text-[11px] font-semibold flex items-center gap-1.5 transition-all"
-        :class="
-          currentView === 'templates'
-            ? 'bg-indigo-600 text-white shadow-xs'
-            : 'text-slate-400 hover:text-slate-200 hover:bg-slate-900'
-        "
-      >
-        <LayoutGrid class="w-3 h-3" />
-        <span>Templates</span>
       </button>
     </div>
 

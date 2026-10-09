@@ -28,20 +28,7 @@ import {
   Target,
 } from 'lucide-vue-next'
 
-import UiNavbarSection from './sections/UiNavbarSection.vue'
-import UiHeroSection from './sections/UiHeroSection.vue'
-import UiKpiSection from './sections/UiKpiSection.vue'
-import UiTableSection from './sections/UiTableSection.vue'
-import UiMobileStatusSection from './sections/UiMobileStatusSection.vue'
-import UiBalanceSection from './sections/UiBalanceSection.vue'
-import UiAssetListSection from './sections/UiAssetListSection.vue'
-import UiMobileNavSection from './sections/UiMobileNavSection.vue'
-import UiAnnouncementSection from './sections/UiAnnouncementSection.vue'
-import UiFormSection from './sections/UiFormSection.vue'
-import UiFeatureGridSection from './sections/UiFeatureGridSection.vue'
-import UiProductGridSection from './sections/UiProductGridSection.vue'
-import UiPricingSection from './sections/UiPricingSection.vue'
-
+import { formatAuditScore } from '../../utils/uiAudit.js'
 import AntiSlopBadge from './AntiSlopBadge.vue'
 import ReviewCommentPin from './ReviewCommentPin.vue'
 import ArtifactPreview from './ArtifactPreview.vue'
@@ -288,32 +275,6 @@ function handleSendToAi(payload) {
   }
 }
 
-const SECTION_COMPONENTS = {
-  navbar: UiNavbarSection,
-  hero: UiHeroSection,
-  kpi_grid: UiKpiSection,
-  data_table: UiTableSection,
-  mobile_status_bar: UiMobileStatusSection,
-  balance_card: UiBalanceSection,
-  asset_list: UiAssetListSection,
-  mobile_bottom_nav: UiMobileNavSection,
-  announcement_bar: UiAnnouncementSection,
-  form: UiFormSection,
-  form_card: UiFormSection,
-  auth_card: UiFormSection,
-  login_card: UiFormSection,
-  feature_grid: UiFeatureGridSection,
-  features: UiFeatureGridSection,
-  benefits: UiFeatureGridSection,
-  product_grid: UiProductGridSection,
-  products: UiProductGridSection,
-  storefront: UiProductGridSection,
-  catalog: UiProductGridSection,
-  pricing_table: UiPricingSection,
-  pricing: UiPricingSection,
-  plans: UiPricingSection,
-}
-
 const activeCodeTab = ref('react') // 'react' | 'html' | 'vue'
 
 const displayCode = computed(() => {
@@ -348,245 +309,6 @@ const displayCode = computed(() => {
     rawHtml.value ||
     `<!-- Belum ada kode antarmuka. Silakan masukkan prompt untuk mulai mengompilasi desain. -->`
   )
-})
-
-const sandboxDoc = computed(() => {
-  let htmlContent =
-    props.data?.implementation?.source?.html ||
-    codeExport.value?.html ||
-    rawHtml.value ||
-    ''
-  if (!htmlContent && sections.value.length > 0) {
-    htmlContent = `<div class="p-8 text-center text-slate-400 font-sans"><p class="text-sm">Menyiapkan kode sandbox untuk seksi: ${sections.value.map(s => s.type).join(', ')}...</p></div>`
-  }
-
-  // Pure Thin Client: Do NOT force dark mode or arbitrary brand/primary colors.
-  // The AI Design Engine generates bespoke Tailwind classes and styling.
-  const isExplicitDark = theme.value?.mode === 'dark'
-  const customPrimary = theme.value?.primary
-
-  const tailwindThemeConfig = customPrimary
-    ? `tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {
-          colors: {
-            brand: '${customPrimary}',
-            primary: '${customPrimary}'
-          }
-        }
-      }
-    }`
-    : `tailwind.config = {
-      darkMode: 'class',
-      theme: {
-        extend: {}
-      }
-    }`
-
-  return `<!DOCTYPE html>
-<html lang="en"${isExplicitDark ? ' class="dark"' : ''}>
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <script src="https://cdn.tailwindcss.com"><\/script>
-  <script>
-    ${tailwindThemeConfig}
-  <\/script>
-  <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap" rel="stylesheet">
-  <style>
-    body {
-      font-family: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      margin: 0;
-      padding: 0;
-      min-height: 100vh;
-      overflow-x: hidden;
-      background-color: ${isExplicitDark ? '#020617' : 'transparent'};
-      color: ${isExplicitDark ? '#f1f5f9' : 'inherit'};
-    }
-    ::-webkit-scrollbar { width: 6px; height: 6px; }
-    ::-webkit-scrollbar-track { background: transparent; }
-    ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.2); border-radius: 9999px; }
-    ::-webkit-scrollbar-thumb:hover { background: rgba(148, 163, 184, 0.4); }
-    /* Selectable element base styles — only visible in edit/comment mode */
-    body.rl-edit-mode [data-rl-id],
-    body.rl-comment-mode [data-rl-id] {
-      cursor: crosshair;
-      transition: outline 0.12s ease-in-out;
-    }
-    body.rl-edit-mode [data-rl-id]:hover,
-    body.rl-comment-mode [data-rl-id]:hover {
-      outline: 1.5px dashed rgba(99, 102, 241, 0.7) !important;
-      outline-offset: 2px;
-    }
-    body.rl-edit-mode [data-rl-id].rl-selected,
-    body.rl-comment-mode [data-rl-id].rl-selected {
-      outline: 2px solid #6366f1 !important;
-      outline-offset: 2px;
-    }
-    /* Edit mode badge */
-    #rl-mode-badge {
-      position: fixed;
-      top: 8px;
-      right: 8px;
-      z-index: 9999;
-      font-size: 10px;
-      font-family: monospace;
-      font-weight: 700;
-      padding: 2px 8px;
-      border-radius: 4px;
-      pointer-events: none;
-      display: none;
-    }
-    body.rl-edit-mode #rl-mode-badge { display: block; background: rgba(99,102,241,0.9); color: white; content: 'EDIT'; }
-    body.rl-comment-mode #rl-mode-badge { display: block; background: rgba(249,115,22,0.9); color: white; }
-  <\/style>
-<\/head>
-<body class="${isExplicitDark ? 'dark' : ''}">
-  <div id="rl-mode-badge">EDIT</div>
-  ${htmlContent}
-  <script>
-    (function() {
-      var currentMode = 'preview'; // 'preview' | 'edit' | 'comment'
-      var activeSelected = null;
-
-      // Apply mode class to body
-      function applyMode(mode) {
-        currentMode = mode;
-        document.body.classList.remove('rl-preview-mode', 'rl-edit-mode', 'rl-comment-mode');
-        document.body.classList.add('rl-' + mode + '-mode');
-        var badge = document.getElementById('rl-mode-badge');
-        if (badge) {
-          badge.textContent = mode.toUpperCase();
-        }
-        // Clear selection when switching to preview
-        if (mode === 'preview' && activeSelected) {
-          activeSelected.classList.remove('rl-selected');
-          activeSelected = null;
-        }
-      }
-
-      // Listen for mode changes from parent
-      window.addEventListener('message', function(evt) {
-        if (evt.data && evt.data.type === 'RANCANGLAB_SET_MODE') {
-          applyMode(evt.data.mode || 'preview');
-        }
-      });
-
-      // Notify parent that iframe is ready (so parent can push current mode)
-      window.parent.postMessage({ type: 'RANCANGLAB_IFRAME_READY' }, '*');
-
-      document.addEventListener('click', function(e) {
-
-        // 1. Intercept Link Navigations (Always — prevents host app recursion)
-        var anchor = e.target.closest('a');
-        if (anchor) {
-          var href = anchor.getAttribute('href');
-          if (href) {
-            // In EDIT/COMMENT mode: completely block all navigation, select anchor element instead
-            if (currentMode === 'edit' || currentMode === 'comment') {
-              e.preventDefault();
-              e.stopPropagation();
-              // Select the anchor as a component if it has identity
-              trySelectElement(anchor, e);
-              return;
-            }
-
-            // In PREVIEW mode: allow hash scrolling, block app-recursive nav
-            e.preventDefault();
-            e.stopPropagation();
-
-            if (href.startsWith('#')) {
-              var hashTarget = document.querySelector(href);
-              if (hashTarget) {
-                hashTarget.scrollIntoView({ behavior: 'smooth' });
-              }
-              return;
-            } else if (href.startsWith('http://') || href.startsWith('https://')) {
-              window.open(href, '_blank', 'noopener,noreferrer');
-              return;
-            } else {
-              // Relative path or root '/' — notify parent, try local scroll
-              window.parent.postMessage({ type: 'RANCANGLAB_PREVIEW_NAVIGATE', href: href }, '*');
-              var cleanSlug = href.replace(/^\\/+/, '').split('?')[0].split('#')[0];
-              if (cleanSlug) {
-                var matchEl = document.getElementById(cleanSlug) || document.getElementById('sec-' + cleanSlug);
-                if (matchEl) {
-                  matchEl.scrollIntoView({ behavior: 'smooth' });
-                }
-              }
-              return;
-            }
-          }
-        }
-
-        // 2. Element & Section Selection — only in EDIT / COMMENT modes
-        if (currentMode !== 'edit' && currentMode !== 'comment') return;
-        trySelectElement(e.target, e);
-
-      }, true);
-
-      function trySelectElement(startEl, e) {
-        // Determine selectable priority: data-rl-id > data-component-id > id on meaningful elements
-        var SELECTABLE_TAGS = new Set(['section','header','footer','nav','main','article','aside','form',
-          'button','a','h1','h2','h3','h4','h5','h6','img','input','select','textarea',
-          'ul','ol','table','figure','blockquote','dialog','details','label']);
-
-        var target = startEl;
-        while (target && target !== document.body) {
-          var rlid = target.getAttribute('data-rl-id') ||
-                     target.getAttribute('data-component-id') ||
-                     (SELECTABLE_TAGS.has(target.tagName.toLowerCase()) && target.id ? target.id : null);
-
-          if (rlid) {
-            // Update visual selection
-            if (activeSelected) activeSelected.classList.remove('rl-selected');
-            target.classList.add('rl-selected');
-            activeSelected = target;
-
-            var kind = target.getAttribute('data-rl-kind') || (rlid.startsWith('sec-') ? 'section' : 'component');
-            var secEl = target.closest('[data-rl-kind="section"], [id^="sec-"]');
-            var secId = secEl ? (secEl.getAttribute('data-rl-id') || secEl.id) : null;
-
-            // Build breadcrumb path
-            var breadcrumb = [];
-            var cur = target;
-            while (cur && cur !== document.body) {
-              var cid = cur.getAttribute('data-rl-id') || cur.getAttribute('data-component-id') || (SELECTABLE_TAGS.has(cur.tagName.toLowerCase()) && cur.id ? cur.id : null);
-              if (cid && cid !== rlid) breadcrumb.unshift(cid);
-              cur = cur.parentElement;
-            }
-
-            window.parent.postMessage({
-              type: 'UI_ELEMENT_SELECTED',
-              mode: currentMode,
-              target: {
-                type: kind,
-                id: rlid,
-                section_id: secId,
-                tag: target.tagName.toLowerCase(),
-              },
-              context: {
-                tag: target.tagName.toLowerCase(),
-                text: (target.innerText || '').slice(0, 80).trim(),
-                role: target.getAttribute('role') || kind,
-                breadcrumb: breadcrumb,
-              }
-            }, '*');
-
-            window.parent.postMessage({ type: 'UI_COMPONENT_CLICKED', componentId: rlid }, '*');
-            break;
-          }
-          target = target.parentElement;
-        }
-      }
-
-    })();
-  <\/script>
-<\/body>
-<\/html>`
 })
 
 function cycleMobileViewMode() {
@@ -850,10 +572,10 @@ async function copyCode() {
             <div class="flex items-center gap-2">
               <span
                 class="px-2.5 py-1 rounded text-[10px] font-mono font-semibold border flex items-center gap-1.5"
-                :class="validation?.status === 'fail' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : validation?.status === 'repaired' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30'"
+                :class="validation?.status === 'fail' ? 'bg-rose-500/20 text-rose-300 border-rose-500/30' : validation?.status === 'repaired' ? 'bg-amber-500/20 text-amber-300 border-amber-500/30' : validation?.status === 'pass' ? 'bg-emerald-500/20 text-emerald-300 border-emerald-500/30' : 'bg-slate-500/20 text-slate-300 border-slate-500/30'"
               >
                 <CheckCircle2 class="w-3 h-3" />
-                <span>Compiler Status: {{ (validation?.status || 'PASS').toUpperCase() }}</span>
+                <span>Compiler Status: {{ (validation?.status || 'unavailable').toUpperCase() }}</span>
               </span>
             </div>
           </div>
@@ -1095,19 +817,19 @@ async function copyCode() {
                   <div class="grid grid-cols-2 gap-1.5 text-[10px]">
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Schema:</span>
-                      <span class="font-bold text-emerald-400 font-mono uppercase">{{ auditState?.validation?.status || 'PASS' }}</span>
+                      <span class="font-bold text-slate-300 font-mono uppercase">{{ auditState?.validation?.status || 'unavailable' }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Coverage:</span>
-                      <span class="font-bold text-emerald-400 font-mono uppercase">{{ auditState?.requirement_coverage?.status || 'PASS' }}</span>
+                      <span class="font-bold text-slate-300 font-mono uppercase">{{ auditState?.requirement_coverage?.status || 'unavailable' }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Anti-Slop:</span>
-                      <span class="font-bold text-emerald-400 font-mono uppercase">{{ auditState?.anti_slop?.status || 'PASS' }}</span>
+                      <span class="font-bold text-slate-300 font-mono uppercase">{{ auditState?.anti_slop?.status || 'unavailable' }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Visual Review:</span>
-                      <span class="font-bold text-emerald-400 font-mono uppercase">{{ auditState?.visual_review?.status || 'PASS' }}</span>
+                      <span class="font-bold text-slate-300 font-mono uppercase">{{ auditState?.visual_review?.status || 'unavailable' }}</span>
                     </div>
                   </div>
                 </div>
@@ -1116,7 +838,7 @@ async function copyCode() {
                   <span class="text-slate-400 block text-[11px]">Anti-Hallucination Audit:</span>
                   <div class="p-2 rounded-lg bg-emerald-950/30 border border-emerald-800/40 text-[11px] text-emerald-300 mt-1 flex items-start gap-1.5">
                     <CheckCircle2 class="w-3.5 h-3.5 flex-shrink-0 mt-0.5 text-emerald-400" />
-                    <span>{{ validation?.hallucination_check || 'Clean: Bebas domain spekulatif, treasury palsu, dan elemen halusinasi.' }}</span>
+                    <span>{{ validation?.hallucination_check || 'Belum dievaluasi.' }}</span>
                   </div>
                 </div>
                 <div>
@@ -1124,35 +846,35 @@ async function copyCode() {
                   <div class="grid grid-cols-2 gap-1.5 text-[10px]">
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Fidelity:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.requirement_fidelity ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.requirement_fidelity) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Scope:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.scope_accuracy ?? validation?.score?.scope ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.scope_accuracy ?? validation?.score?.scope) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Traceability:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.traceability ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.traceability) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Simplicity:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.simplicity ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.simplicity) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Hierarchy:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.hierarchy ?? 9 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.hierarchy) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Consistency:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.visual_consistency ?? validation?.score?.consistency ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.visual_consistency ?? validation?.score?.consistency) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Responsive:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.responsive_quality ?? 9 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.responsive_quality) }}</span>
                     </div>
                     <div class="p-1.5 rounded-lg bg-slate-950/60 border border-slate-800 flex justify-between items-center">
                       <span class="text-slate-400">Anti-Hallucination:</span>
-                      <span class="font-bold text-emerald-400 font-mono">{{ validation?.score?.hallucination_safety ?? 10 }}/10</span>
+                      <span class="font-bold text-slate-300 font-mono">{{ formatAuditScore(validation?.score?.hallucination_safety) }}</span>
                     </div>
                   </div>
                 </div>
@@ -1296,9 +1018,9 @@ async function copyCode() {
             </div>
             <span
               class="px-1.5 py-0.5 rounded text-[9px] font-mono uppercase"
-              :class="validation?.status === 'fail' ? 'bg-rose-500/20 text-rose-300' : 'bg-emerald-500/20 text-emerald-300'"
+              :class="validation?.status === 'fail' ? 'bg-rose-500/20 text-rose-300' : validation?.status === 'pass' ? 'bg-emerald-500/20 text-emerald-300' : 'bg-slate-500/20 text-slate-300'"
             >
-              {{ validation?.status || 'PASS' }}
+              {{ validation?.status || 'unavailable' }}
             </span>
           </div>
 
@@ -1333,10 +1055,10 @@ async function copyCode() {
           <!-- 3. Audit -->
           <div class="p-2.5 rounded-lg bg-slate-900 border border-slate-800 space-y-1.5">
             <span class="text-[10px] font-bold text-emerald-300 uppercase tracking-wider block">3. Validator (VERIFIED)</span>
-            <p class="text-[10px] text-emerald-400">{{ validation?.hallucination_check || 'Clean: Bebas domain halusinasi.' }}</p>
+            <p class="text-[10px] text-emerald-400">{{ validation?.hallucination_check || 'Belum dievaluasi.' }}</p>
             <div class="grid grid-cols-2 gap-1 text-[9px] pt-1 border-t border-slate-800">
-              <span class="text-slate-400">Fidelity: <span class="text-emerald-400 font-mono font-bold">{{ validation?.score?.requirement_fidelity ?? 10 }}/10</span></span>
-              <span class="text-slate-400">Scope: <span class="text-emerald-400 font-mono font-bold">{{ validation?.score?.scope_accuracy ?? validation?.score?.scope ?? 10 }}/10</span></span>
+              <span class="text-slate-400">Fidelity: <span class="text-emerald-400 font-mono font-bold">{{ formatAuditScore(validation?.score?.requirement_fidelity) }}</span></span>
+              <span class="text-slate-400">Scope: <span class="text-emerald-400 font-mono font-bold">{{ formatAuditScore(validation?.score?.scope_accuracy ?? validation?.score?.scope) }}</span></span>
             </div>
           </div>
         </div>

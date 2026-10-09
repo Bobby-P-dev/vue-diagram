@@ -1,5 +1,6 @@
 <script setup>
 import { ref, computed } from 'vue'
+import { formatAuditScore, summarizeAudit } from '../../utils/uiAudit.js'
 import { CheckCircle2, ShieldCheck, AlertTriangle, XCircle, X, Check } from 'lucide-vue-next'
 
 const props = defineProps({
@@ -24,17 +25,12 @@ const reqCoverage = computed(() => props.auditData?.requirement_coverage || null
 const antiSlop = computed(() => props.auditData?.anti_slop || null)
 const visualReview = computed(() => props.auditData?.visual_review || null)
 
-const status = computed(() => {
-  if (!props.auditData) return 'pass'
-  const v = (validation.value?.status || 'pass').toLowerCase()
-  const c = (reqCoverage.value?.status || 'pass').toLowerCase()
-  const a = (antiSlop.value?.status || 'pass').toLowerCase()
-  if (v === 'fail' || c === 'fail' || a === 'fail') return 'fail'
-  if (v === 'repaired' || c === 'repaired') return 'repaired'
-  return 'pass'
-})
+const status = computed(() => summarizeAudit(props.auditData))
 
 const badgeConfig = computed(() => {
+  if (status.value === 'unavailable') {
+    return { label: 'Belum lengkap', color: 'bg-slate-500/20 text-slate-300 border-slate-500/30', icon: AlertTriangle, iconColor: 'text-slate-400' }
+  }
   if (status.value === 'fail') {
     return {
       label: 'Audit Issues',
@@ -64,29 +60,29 @@ const pillars = computed(() => [
     category: 'Architecture & Schema',
     name: 'Component Hierarchy & Schema Integrity',
     desc: 'Semantik HTML, struktur DOM clean, dan kesesuaian AST compiler tanpa layout broken.',
-    status: (validation.value?.status || 'pass').toUpperCase(),
-    passed: (validation.value?.status || 'pass').toLowerCase() !== 'fail',
+    status: (validation.value?.status || 'unavailable').toUpperCase(),
+    passed: (validation.value?.status || 'unavailable').toLowerCase() === 'pass',
   },
   {
     category: 'Requirement & Intent',
     name: 'Intent Alignment & Scope Accuracy',
     desc: 'Fitur yang dirender tepat sesuai prompt pengguna, tanpa fitur spekulatif atau bloat tak diinginkan.',
-    status: (reqCoverage.value?.status || 'pass').toUpperCase(),
-    passed: (reqCoverage.value?.status || 'pass').toLowerCase() !== 'fail',
+    status: (reqCoverage.value?.status || 'unavailable').toUpperCase(),
+    passed: (reqCoverage.value?.status || 'unavailable').toLowerCase() === 'pass',
   },
   {
     category: 'Anti AI-Slop & Hallucination',
     name: 'Authentic Domain Entities & Zero Slop',
-    desc: validation.value?.hallucination_check || 'Bebas dari placeholder lorem ipsum, halo glowing berlebihan, dan domain halusinasi.',
-    status: (antiSlop.value?.status || 'pass').toUpperCase(),
-    passed: (antiSlop.value?.status || 'pass').toLowerCase() !== 'fail',
+    desc: validation.value?.hallucination_check || 'Belum dievaluasi.',
+    status: (antiSlop.value?.status || 'unavailable').toUpperCase(),
+    passed: (antiSlop.value?.status || 'unavailable').toLowerCase() === 'pass',
   },
   {
     category: 'Visual & Design System',
     name: 'Spacing Geometry & Color Contrast',
-    desc: 'Skala spacing konsisten (4/8/16/24px) dengan kepatuhan kontras WCAG AA.',
-    status: (visualReview.value?.status || 'pass').toUpperCase(),
-    passed: (visualReview.value?.status || 'pass').toLowerCase() !== 'fail',
+    desc: visualReview.value?.reason || 'Pemeriksaan visual, spacing, dan kontras; status mengikuti hasil evaluasi.',
+    status: (visualReview.value?.status || 'unavailable').toUpperCase(),
+    passed: (visualReview.value?.status || 'unavailable').toLowerCase() === 'pass',
   },
 ])
 
@@ -171,19 +167,19 @@ const scores = computed(() => validation.value?.score || null)
           <div class="grid grid-cols-2 gap-1.5 text-[10px]">
             <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
               <span>Fidelity:</span>
-              <span class="font-mono font-bold text-emerald-400">{{ scores.requirement_fidelity ?? 10 }}/10</span>
+              <span class="font-mono font-bold text-emerald-400">{{ formatAuditScore(scores.requirement_fidelity) }}</span>
             </div>
             <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
               <span>Scope:</span>
-              <span class="font-mono font-bold text-emerald-400">{{ scores.scope_accuracy ?? scores.scope ?? 10 }}/10</span>
+              <span class="font-mono font-bold text-emerald-400">{{ formatAuditScore(scores.scope_accuracy ?? scores.scope) }}</span>
             </div>
             <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
               <span>Traceability:</span>
-              <span class="font-mono font-bold text-emerald-400">{{ scores.traceability ?? 10 }}/10</span>
+              <span class="font-mono font-bold text-emerald-400">{{ formatAuditScore(scores.traceability) }}</span>
             </div>
             <div class="flex justify-between py-0.5 border-b border-slate-800/60 text-slate-400">
               <span>Simplicity:</span>
-              <span class="font-mono font-bold text-emerald-400">{{ scores.simplicity ?? 10 }}/10</span>
+              <span class="font-mono font-bold text-emerald-400">{{ formatAuditScore(scores.simplicity) }}</span>
             </div>
           </div>
         </div>
@@ -191,7 +187,7 @@ const scores = computed(() => validation.value?.score || null)
 
       <div class="mt-3 pt-2.5 border-t border-slate-800/80 flex items-center justify-between text-[10px] text-slate-400">
         <span>Aesthetic Engine: <strong class="text-slate-200 font-mono">{{ foundationName }}</strong></span>
-        <span class="text-emerald-400 font-semibold font-mono">Verified Runtime</span>
+        <span class="text-emerald-400 font-semibold font-mono">{{ badgeConfig.label }}</span>
       </div>
     </div>
   </div>

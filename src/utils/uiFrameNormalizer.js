@@ -87,10 +87,10 @@ export function normalizeUIFrameNode(node) {
 
   // 4. AUDIT STATE (Evaluation only)
   const audit = {
-    validation: rawData.audit?.validation || rawData.validation || { status: 'pass' },
-    requirement_coverage: rawData.audit?.requirement_coverage || { status: 'pass' },
-    anti_slop: rawData.audit?.anti_slop || rawData.anti_slop_audit || { status: 'pass' },
-    visual_review: rawData.audit?.visual_review || { status: 'pass' },
+    validation: rawData.audit?.validation || rawData.validation || null,
+    requirement_coverage: rawData.audit?.requirement_coverage || (rawData.validation ? { status: rawData.validation.status } : null),
+    anti_slop: rawData.audit?.anti_slop || rawData.anti_slop_audit || null,
+    visual_review: rawData.audit?.visual_review || rawData.visual_critique || null,
   }
 
   const changePlan = rawData.change_plan || null

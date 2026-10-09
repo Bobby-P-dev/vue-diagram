@@ -110,7 +110,6 @@ const currentLanes = ref([])
 const projectVersions = ref([])
 const isLoadingVersions = ref(false)
 const templatesList = ref([])
-const uiTemplatesList = ref([])
 const activeFoundationId = ref(null)
 const lastApiPayload = ref(null)
 const lastGeneratedArtifact = ref(null)
@@ -118,7 +117,8 @@ const canvasMode = ref('preview') // 'preview' | 'edit' | 'comment'
 
 const isProjectGenerating = ref(false)
 const isChatGenerating = ref(false)
-const isGenerating = computed(() => isProjectGenerating.value || isChatGenerating.value)
+const isNewScreenGenerating = ref(false)
+const isGenerating = computed(() => isProjectGenerating.value || isChatGenerating.value || isNewScreenGenerating.value)
 const isSidebarLoading = ref(false)
 const errorMessage = ref('')
 
@@ -178,9 +178,21 @@ export function useDiagramStore() {
     getTemplates,
     getUiTemplates,
     createUiDesign,
+    createUiDesignStream,
     createUiDesignAsync,
     sendUiDesignChat,
   } = api
+
+  const uiStreamProgress = ref({
+    stage: 'idle',
+    message: '',
+    tokens: 0,
+    chars: 0,
+    elapsedSeconds: 0,
+    progressPercent: 0,
+    sections: [],
+    activeSection: '',
+  })
 
   const asyncJob = useAsyncJob()
 
@@ -480,7 +492,6 @@ export function useDiagramStore() {
     themeMode = null,
     accentColor = null,
     customTone = null,
-    templateId = null,
     foundation = null,
     archetype = null,
     density = null,
@@ -501,7 +512,6 @@ export function useDiagramStore() {
       ...(themeMode ? { themeMode } : {}),
       ...(accentColor ? { accentColor } : {}),
       ...(customTone ? { customTone } : {}),
-      ...(templateId ? { templateId } : {}),
       ...(foundation ? { foundation } : {}),
       ...(archetype ? { archetype } : {}),
       ...(density ? { density } : {}),
@@ -571,22 +581,70 @@ export function useDiagramStore() {
       }
     }
 
+    let elapsedTimer = null
+    uiStreamProgress.value = {
+      stage: 'analyzing',
+      message: 'Menganalisis kebutuhan & arsitektur UI...',
+      tokens: 0,
+      chars: 0,
+      elapsedSeconds: 0,
+      progressPercent: 12,
+      sections: [],
+      activeSection: 'Analisis & Tata Letak',
+    }
+
+    elapsedTimer = setInterval(() => {
+      uiStreamProgress.value.elapsedSeconds++
+      if (uiStreamProgress.value.progressPercent < 92) {
+        const remaining = 92 - uiStreamProgress.value.progressPercent
+        uiStreamProgress.value.progressPercent += Math.max(1, Math.floor(remaining / 8))
+      }
+    }, 1000)
+
     try {
-      const data = await createUiDesign({
-        prompt,
-        device,
-        theme,
-        themeMode,
-        accentColor,
-        customTone,
-        templateId,
-        foundation,
-        archetype,
-        density,
-        productContext,
-        primaryUser,
-        primaryTask,
-      })
+      const data = await createUiDesignStream(
+        {
+          prompt,
+          device,
+          theme,
+          themeMode,
+          accentColor,
+          customTone,
+          foundation,
+          archetype,
+          density,
+          productContext,
+          primaryUser,
+          primaryTask,
+        },
+        ({ event, data: evtData }) => {
+          if (event === 'status') {
+            uiStreamProgress.value = {
+              ...uiStreamProgress.value,
+              stage: evtData.stage || uiStreamProgress.value.stage,
+              message: evtData.message || uiStreamProgress.value.message,
+            }
+          } else if (event === 'progress') {
+            const rawSections = evtData.sections || []
+            uiStreamProgress.value = {
+              ...uiStreamProgress.value,
+              stage: evtData.stage || 'generating',
+              message: evtData.message || uiStreamProgress.value.message,
+              tokens: evtData.tokens || uiStreamProgress.value.tokens,
+              chars: evtData.chars || uiStreamProgress.value.chars,
+              sections: rawSections.length > 0 ? rawSections : uiStreamProgress.value.sections,
+              activeSection: evtData.active_section || uiStreamProgress.value.activeSection,
+            }
+          } else if (event === 'complete') {
+            uiStreamProgress.value = {
+              ...uiStreamProgress.value,
+              stage: 'complete',
+              message: 'Kanvas UI berhasil dirakit!',
+              progressPercent: 100,
+            }
+          }
+        },
+      )
       setProjectState(data)
       selectedNodes.value = []
       selectedComponentId.value = null
@@ -597,11 +655,22 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Failed to create UI design project'
       return false
     } finally {
+      if (elapsedTimer) clearInterval(elapsedTimer)
       isProjectGenerating.value = false
+      uiStreamProgress.value = {
+        stage: 'idle',
+        message: '',
+        tokens: 0,
+        chars: 0,
+        elapsedSeconds: 0,
+        progressPercent: 0,
+        sections: [],
+        activeSection: '',
+      }
     }
   }
 
-  async function sendFollowUpChat(prompt, componentId = null) {
+  async function sendFollowUpChat(prompt, componentId = null, extraOpts = null) {
     if (!activeProject.value?.id) {
       errorMessage.value = 'No active project to update'
       return false
@@ -610,8 +679,60 @@ export function useDiagramStore() {
     isChatGenerating.value = true
     errorMessage.value = ''
     
-    const targetObj = selectedTarget.value || (componentId ? { type: 'component', id: componentId } : null)
+    const promptHasNewScreenIntent =
+      /(?:buat(?:kan)?|tambah(?:kan)?|bikin(?:kan)?|create|add|new)\s+(?:halaman|screen|frame|page|layar)/i.test(prompt) ||
+      /(?:halaman|screen|frame|page|layar)\s+baru/i.test(prompt) ||
+      /^(?:halaman|screen|frame|page)\s+/i.test(prompt)
+    const isNewScreen =
+      extraOpts?.scope === 'new_screen' ||
+      extraOpts?.target?.type === 'page' ||
+      promptHasNewScreenIntent
+    let progressTimer = null
+
+    if (isNewScreen) {
+      isNewScreenGenerating.value = true
+      isProjectGenerating.value = true
+      isChatGenerating.value = true
+      uiStreamProgress.value = {
+        stage: 'generating',
+        message: 'Merancang screen baru di samping kanvas...',
+        progressPercent: 18,
+        elapsedSeconds: 0,
+        tokens: 0,
+        sections: [
+          'Header & Navigasi Terpadu (Screen 1)',
+          'Layout Utama Screen Baru',
+          'Komponen & Konten Halaman',
+          'Validasi & Penataan Kanvas Multi-Screen'
+        ],
+        activeSection: 'Header & Navigasi Terpadu (Screen 1)'
+      }
+
+      progressTimer = setInterval(() => {
+        if (!uiStreamProgress.value) return
+        uiStreamProgress.value.elapsedSeconds++
+        const sec = uiStreamProgress.value.elapsedSeconds
+        if (sec <= 4) {
+          uiStreamProgress.value.activeSection = 'Header & Navigasi Terpadu (Screen 1)'
+          uiStreamProgress.value.progressPercent = Math.min(35, 18 + sec * 4)
+        } else if (sec <= 12) {
+          uiStreamProgress.value.activeSection = 'Layout Utama Screen Baru'
+          uiStreamProgress.value.progressPercent = Math.min(65, 35 + (sec - 4) * 3)
+        } else if (sec <= 24) {
+          uiStreamProgress.value.activeSection = 'Komponen & Konten Halaman'
+          uiStreamProgress.value.progressPercent = Math.min(88, 65 + (sec - 12) * 2)
+        } else {
+          uiStreamProgress.value.activeSection = 'Validasi & Penataan Kanvas Multi-Screen'
+          if (uiStreamProgress.value.progressPercent < 94) {
+            uiStreamProgress.value.progressPercent += 1
+          }
+        }
+      }, 1000)
+    }
+
+    const targetObj = extraOpts?.target || selectedTarget.value || (componentId ? { type: 'component', id: componentId } : null)
     const targetCmpId = targetObj?.id || componentId || selectedComponentId.value
+    const selCtx = extraOpts?.selectionContext || selectionContext.value
     
     // Optimistic UI update for the chat
     chatHistory.value.push({
@@ -630,8 +751,14 @@ export function useDiagramStore() {
         activeProject.value?.diagram_type === 'ui_design'
 
       const data = isUiDesign
-        ? await sendUiDesignChat(activeProject.value.id, prompt, selectedNodes.value, targetCmpId, targetObj, selectionContext.value)
+        ? await sendUiDesignChat(activeProject.value.id, prompt, selectedNodes.value, targetCmpId, targetObj, selCtx)
         : await sendChat(activeProject.value.id, prompt, selectedNodes.value)
+
+      if (isNewScreen && uiStreamProgress.value) {
+        uiStreamProgress.value.progressPercent = 100
+        uiStreamProgress.value.stage = 'complete'
+        uiStreamProgress.value.message = 'Screen baru berhasil ditambahkan ke kanvas!'
+      }
 
       setProjectState(data)
       selectedNodes.value = []
@@ -642,7 +769,19 @@ export function useDiagramStore() {
       errorMessage.value = err.message || 'Failed to send chat'
       return false
     } finally {
-      isChatGenerating.value = false
+      if (progressTimer) clearInterval(progressTimer)
+      if (isNewScreen) {
+        setTimeout(() => {
+          isNewScreenGenerating.value = false
+          isProjectGenerating.value = false
+          isChatGenerating.value = false
+          if (uiStreamProgress.value) {
+            uiStreamProgress.value.stage = 'idle'
+          }
+        }, 800)
+      } else {
+        isChatGenerating.value = false
+      }
     }
   }
 
@@ -683,15 +822,6 @@ export function useDiagramStore() {
       templatesList.value = Array.isArray(data) ? data : []
     } catch (err) {
       console.error('Failed to load templates:', err)
-    }
-  }
-
-  async function loadUiTemplates() {
-    try {
-      const data = await getUiTemplates()
-      uiTemplatesList.value = Array.isArray(data) ? data : []
-    } catch (err) {
-      console.error('Failed to load UI templates:', err)
     }
   }
 
@@ -918,6 +1048,8 @@ export function useDiagramStore() {
     clearSelectedTarget,
     isGenerating,
     isProjectGenerating,
+    isNewScreenGenerating,
+    uiStreamProgress,
     isChatGenerating,
     isSidebarLoading,
     errorMessage,
@@ -927,7 +1059,6 @@ export function useDiagramStore() {
     projectVersions,
     isLoadingVersions,
     templatesList,
-    uiTemplatesList,
     setLanes,
     
     activeFoundationId,
@@ -947,7 +1078,6 @@ export function useDiagramStore() {
     loadProjectVersions,
     rollbackToVersion,
     loadTemplates,
-    loadUiTemplates,
     toggleNodeSelection,
     clearNodeSelection,
     clearError,

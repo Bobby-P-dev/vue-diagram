@@ -235,6 +235,166 @@ export function useDiagramApi() {
     })
   }
 
+  async function createUiDesignStream(options = {}, onEvent) {
+    const {
+      prompt = '',
+      device = 'web',
+      theme = null,
+      themeMode = null,
+      accentColor = null,
+      customTone = null,
+      foundation = null,
+      archetype = null,
+      density = null,
+      productContext = null,
+      primaryUser = null,
+      primaryTask = null,
+      templateId = null,
+    } = options
+
+    const payload = {
+      device,
+    }
+    if (theme) payload.theme = theme
+    if (foundation) payload.foundation = foundation
+    if (themeMode) payload.theme_mode = themeMode
+    if (accentColor) payload.accent_color = accentColor
+    if (customTone) payload.custom_tone = customTone
+    if (archetype) payload.archetype = archetype
+    if (density) payload.density = density
+    if (productContext) payload.product_context = productContext
+    if (primaryUser) payload.primary_user = primaryUser
+    if (primaryTask) payload.primary_task = primaryTask
+    if (templateId) payload.template_id = templateId
+    if (prompt) payload.prompt = prompt.trim()
+
+    const url = `${API_BASE_URL}/ui-design/generate/stream`
+    const token = typeof localStorage !== 'undefined' ? localStorage.getItem('rl_access_token') : null
+    const authHeaders = token ? { Authorization: `Bearer ${token}` } : {}
+
+    let response
+    try {
+      response = await fetch(url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'text/event-stream, application/json',
+          ...authHeaders,
+        },
+        body: JSON.stringify(payload),
+      })
+    } catch (networkError) {
+      throw new Error(`Network error while calling ${url}: ${networkError.message}`)
+    }
+
+    if (!response.ok) {
+      const errorText = await response.text()
+      try {
+        const errorJson = JSON.parse(errorText)
+        throw new Error(errorJson.error || errorJson.message || `HTTP ${response.status}`)
+      } catch (e) {
+        throw new Error(errorText || `HTTP ${response.status}`)
+      }
+    }
+
+    const contentType = response.headers.get('content-type') || ''
+    if (contentType.includes('application/json')) {
+      const json = await response.json()
+      const data = json.data || json
+      if (onEvent) {
+        onEvent({ event: 'complete', data })
+      }
+      return data
+    }
+
+    const reader = response.body.getReader()
+    const decoder = new TextDecoder('utf-8')
+    let buffer = ''
+    let finalProject = null
+    let currentEvent = 'message'
+    let currentData = ''
+
+    const dispatchEvent = () => {
+      if (!currentData) {
+        currentEvent = 'message'
+        return
+      }
+
+      try {
+        const dataObj = JSON.parse(currentData)
+        if (onEvent) {
+          onEvent({ event: currentEvent, data: dataObj })
+        }
+        if (
+          currentEvent === 'complete' ||
+          (dataObj && (dataObj.id || dataObj.project_id) && (dataObj.nodes || dataObj.current_nodes))
+        ) {
+          finalProject = dataObj
+        } else if (currentEvent === 'error') {
+          throw new Error(dataObj.message || 'Stream generation failed')
+        }
+      } catch (err) {
+        if (err.message && currentEvent === 'error') throw err
+      } finally {
+        currentEvent = 'message'
+        currentData = ''
+      }
+    }
+
+    const processLine = (rawLine) => {
+      const line = rawLine.replace(/\r$/, '')
+      if (line === '') {
+        // SSE message delimiter (\n\n)
+        dispatchEvent()
+        return
+      }
+
+      if (line.startsWith(':')) {
+        // SSE comment
+        return
+      }
+
+      if (line.startsWith('event:')) {
+        currentEvent = line.slice(6).trim()
+      } else if (line.startsWith('data:')) {
+        const value = line.slice(5).trim()
+        currentData = currentData ? currentData + '\n' + value : value
+      }
+    }
+
+    while (true) {
+      const { done, value } = await reader.read()
+      if (done) break
+
+      buffer += decoder.decode(value, { stream: true })
+      const lines = buffer.split('\n')
+      // Retain incomplete trailing segment in buffer
+      buffer = lines.pop()
+
+      for (const line of lines) {
+        processLine(line)
+      }
+    }
+
+    // Flush any remaining buffer when reader completes
+    if (buffer.trim()) {
+      processLine(buffer)
+    }
+    dispatchEvent()
+
+    if (!finalProject && buffer.trim()) {
+      try {
+        const fallbackObj = JSON.parse(buffer.trim())
+        finalProject = fallbackObj.data || fallbackObj
+      } catch (_) {}
+    }
+
+    if (finalProject) {
+      return finalProject
+    }
+    throw new Error('Stream selesai tanpa data proyek lengkap')
+  }
+
   async function createUiDesignAsync(options = {}) {
     const {
       prompt = '',
@@ -457,6 +617,7 @@ export function useDiagramApi() {
     getTemplates,
     getUiTemplates,
     createUiDesign,
+    createUiDesignStream,
     createUiDesignAsync,
     getJobStatus,
     sendUiDesignChat,

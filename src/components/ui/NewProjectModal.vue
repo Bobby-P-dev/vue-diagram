@@ -58,7 +58,7 @@ const activeTab = ref('ui_design')
 // UI Design State (Clean & Essential - Thin Client)
 const uiPrompt = ref('')
 const uiDevice = ref('web') // 'web' | 'mobile' | 'desktop'
-const uiOrchestrationMode = ref('crewai') // 'crewai' | 'fast'
+const uiOrchestrationMode = ref('fast') // 'fast' | 'crewai'
 
 // Diagram State
 const prompt = ref('')
@@ -67,7 +67,6 @@ const diagramType = ref('flowchart')
 // Template Gallery State
 const templateSearch = ref('')
 const selectedCategory = ref('All')
-const templateTypeFilter = ref('all') // 'all' | 'diagram' | 'ui_design'
 
 const UI_DEVICES = [
   {
@@ -206,44 +205,28 @@ const currentDiagramPlaceholder = computed(() => {
   return selected?.placeholder || 'Deskripsikan diagram yang ingin Anda buat...'
 })
 
-// Unified templates
+// Diagram templates (strictly for diagram types)
 const diagramTemplates = computed(() => store.templatesList.value || [])
-const uiTemplates = computed(() => store.uiTemplatesList.value || [])
-
-const allTemplatesUnified = computed(() => {
-  const list = []
-  diagramTemplates.value.forEach((t) => {
-    list.push({ ...t, _kind: 'diagram' })
-  })
-  uiTemplates.value.forEach((t) => {
-    list.push({ ...t, _kind: 'ui_design' })
-  })
-  return list
-})
 
 const categories = computed(() => {
   const cats = new Set(['All'])
-  allTemplatesUnified.value.forEach((t) => {
+  diagramTemplates.value.forEach((t) => {
     if (t.category) cats.add(t.category)
   })
   return Array.from(cats)
 })
 
 const filteredTemplates = computed(() => {
-  return allTemplatesUnified.value.filter((t) => {
-    if (templateTypeFilter.value !== 'all' && t._kind !== templateTypeFilter.value) {
-      return false
-    }
+  return diagramTemplates.value.filter((t) => {
     const matchCategory =
       selectedCategory.value === 'All' || t.category === selectedCategory.value
 
     const query = templateSearch.value.toLowerCase().trim()
     const matchSearch =
       !query ||
-      t.name.toLowerCase().includes(query) ||
+      (t.name && t.name.toLowerCase().includes(query)) ||
       (t.description && t.description.toLowerCase().includes(query)) ||
-      (t.diagram_type && t.diagram_type.toLowerCase().includes(query)) ||
-      (t.device && t.device.toLowerCase().includes(query))
+      (t.diagram_type && t.diagram_type.toLowerCase().includes(query))
     return matchCategory && matchSearch
   })
 })
@@ -275,21 +258,17 @@ watch(
       uiPrompt.value = ''
       diagramType.value = 'flowchart'
       uiDevice.value = 'web'
-      uiOrchestrationMode.value = 'crewai'
+      uiOrchestrationMode.value = 'fast'
       templateSearch.value = ''
       selectedCategory.value = 'All'
       if (!canGenerateUI.value && canGenerateDiagram.value) {
         activeTab.value = 'diagram'
-        templateTypeFilter.value = 'diagram'
-      } else if (canGenerateUI.value && !canGenerateDiagram.value) {
-        activeTab.value = 'ui_design'
-        templateTypeFilter.value = 'ui_design'
       } else {
         activeTab.value = 'ui_design'
-        templateTypeFilter.value = 'all'
       }
-      store.loadTemplates()
-      store.loadUiTemplates()
+      if (canGenerateDiagram.value) {
+        store.loadTemplates()
+      }
     }
   },
   { flush: 'sync' },
@@ -331,19 +310,12 @@ function handleSubmitDiagram() {
 
 function handleUseTemplate(template) {
   if (props.isLoading) return
-  if (template._kind === 'ui_design') {
-    emit('create', {
-      mode: 'ui_design',
-      templateId: template.id,
-    })
-  } else {
-    emit('create', {
-      mode: 'diagram',
-      prompt: '',
-      diagramType: template.diagram_type,
-      templateId: template.id,
-    })
-  }
+  emit('create', {
+    mode: 'diagram',
+    prompt: '',
+    diagramType: template.diagram_type,
+    templateId: template.id,
+  })
 }
 
 function handleClose() {
@@ -416,11 +388,12 @@ function handleClose() {
           <span>Diagram / Flowchart</span>
         </button>
 
-        <!-- Tab 3: Galeri Template -->
+        <!-- Tab 3: Galeri Template (Diagram Only) -->
         <button
+          v-if="canGenerateDiagram"
           type="button"
           @click="activeTab = 'templates'"
-          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all ml-auto"
+          class="flex items-center gap-2 py-2.5 px-3 text-xs font-semibold border-b-2 transition-all ml-auto cursor-pointer"
           :class="
             activeTab === 'templates'
               ? 'border-indigo-600 text-indigo-600'
@@ -428,13 +401,13 @@ function handleClose() {
           "
         >
           <BookOpen class="w-3.5 h-3.5" />
-          <span>Template</span>
+          <span>Template Diagram</span>
           <span
-            v-if="allTemplatesUnified.length > 0"
+            v-if="diagramTemplates.length > 0"
             class="text-[10px] font-mono font-bold px-1.5 py-0.2 rounded-full"
             :class="activeTab === 'templates' ? 'bg-indigo-100 text-indigo-700' : 'bg-slate-100 text-slate-600'"
           >
-            {{ allTemplatesUnified.length }}
+            {{ diagramTemplates.length }}
           </span>
         </button>
       </div>
@@ -521,6 +494,23 @@ function handleClose() {
               <div class="grid grid-cols-2 gap-1.5">
                 <button
                   type="button"
+                  @click="uiOrchestrationMode = 'fast'"
+                  :class="[
+                    'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
+                    uiOrchestrationMode === 'fast'
+                      ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-1 ring-indigo-500/20 shadow-xs'
+                      : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
+                  ]"
+                >
+                  <div class="flex items-center gap-1 font-bold text-xs">
+                    <Zap class="w-3 h-3 text-amber-500" />
+                    <span>Fast Track (Direkomendasikan)</span>
+                  </div>
+                  <p class="text-[10px] text-slate-500 leading-tight">Instan &amp; Cepat (&lt; 5s)</p>
+                </button>
+
+                <button
+                  type="button"
                   @click="uiOrchestrationMode = 'crewai'"
                   :class="[
                     'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
@@ -531,26 +521,9 @@ function handleClose() {
                 >
                   <div class="flex items-center gap-1 font-bold text-xs">
                     <Sparkles class="w-3 h-3 text-indigo-600" />
-                    <span>CrewAI</span>
+                    <span>Async Worker</span>
                   </div>
-                  <p class="text-[10px] text-slate-500 leading-tight">4-Agent Pipeline</p>
-                </button>
-
-                <button
-                  type="button"
-                  @click="uiOrchestrationMode = 'fast_track'"
-                  :class="[
-                    'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
-                    uiOrchestrationMode === 'fast_track'
-                      ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-1 ring-indigo-500/20 shadow-xs'
-                      : 'border-slate-200 text-slate-600 bg-white hover:bg-slate-50'
-                  ]"
-                >
-                  <div class="flex items-center gap-1 font-bold text-xs">
-                    <Zap class="w-3 h-3 text-amber-500" />
-                    <span>Fast Track</span>
-                  </div>
-                  <p class="text-[10px] text-slate-500 leading-tight">&lt; 3s Single pass</p>
+                  <p class="text-[10px] text-slate-500 leading-tight">Direct Python Pipeline</p>
                 </button>
               </div>
             </div>
@@ -688,28 +661,27 @@ function handleClose() {
         </form>
       </div>
 
-      <!-- ==================== TAB 3: GALERI TEMPLATE ==================== -->
-      <div v-else-if="activeTab === 'templates'" class="overflow-y-auto p-5 space-y-3 flex-1">
-        <!-- Search & Filter Controls -->
+      <!-- ==================== TAB 3: GALERI TEMPLATE DIAGRAM ==================== -->
+      <div v-else-if="activeTab === 'templates' && canGenerateDiagram" class="overflow-y-auto p-5 space-y-3 flex-1">
+        <!-- Search & Category Controls -->
         <div class="flex items-center gap-2">
           <div class="relative flex-1">
             <Search class="w-3.5 h-3.5 absolute left-3 top-2.5 text-slate-400" />
             <input
               v-model="templateSearch"
               type="text"
-              placeholder="Cari template..."
+              placeholder="Cari template diagram..."
               class="w-full pl-8 pr-3 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-800 placeholder-slate-400 focus:outline-hidden focus:bg-white focus:border-indigo-500"
             />
           </div>
 
-          <!-- Kind Filter -->
+          <!-- Category Filter -->
           <select
-            v-model="templateTypeFilter"
-            class="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-hidden focus:bg-white"
+            v-if="categories.length > 1"
+            v-model="selectedCategory"
+            class="px-2.5 py-1.5 text-xs bg-slate-50 border border-slate-200 rounded-lg text-slate-700 focus:outline-hidden focus:bg-white cursor-pointer"
           >
-            <option value="all">Semua Tipe</option>
-            <option value="ui_design">UI Design Canvas</option>
-            <option value="diagram">Diagram Flowchart</option>
+            <option v-for="cat in categories" :key="cat" :value="cat">{{ cat }}</option>
           </select>
         </div>
 
@@ -724,13 +696,6 @@ function handleClose() {
               <div class="flex items-center justify-between gap-1 mb-1">
                 <span class="font-bold text-xs text-slate-900 truncate">{{ tpl.name }}</span>
                 <span
-                  v-if="tpl._kind === 'ui_design'"
-                  class="text-[9px] font-semibold px-1.5 py-0.5 rounded bg-pink-50 text-pink-700 border border-pink-200/80"
-                >
-                  UI Design
-                </span>
-                <span
-                  v-else
                   class="text-[9px] font-semibold px-1.5 py-0.5 rounded"
                   :class="getDiagramTypeBadge(tpl.diagram_type).color"
                 >
@@ -741,12 +706,12 @@ function handleClose() {
             </div>
 
             <div class="pt-2 border-t border-slate-100 flex items-center justify-between">
-              <span class="text-[10px] text-slate-400 font-mono">{{ tpl.device || tpl.diagram_type }}</span>
+              <span class="text-[10px] text-slate-400 font-mono">{{ tpl.diagram_type }}</span>
               <button
                 type="button"
                 @click="handleUseTemplate(tpl)"
                 :disabled="isLoading"
-                class="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-lg text-xs font-semibold transition-colors"
+                class="px-2.5 py-1 bg-indigo-50 hover:bg-indigo-600 text-indigo-700 hover:text-white rounded-lg text-xs font-semibold transition-colors cursor-pointer"
               >
                 Gunakan
               </button>

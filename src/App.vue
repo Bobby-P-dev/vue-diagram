@@ -18,9 +18,10 @@ import {
   History,
   Palette,
   Loader2,
+  CheckCircle2,
+  Clock,
   FilePlus,
   ArrowRight,
-  BookOpen,
   ArrowLeftRight,
   Component,
   Server,
@@ -36,7 +37,6 @@ import NewProjectModal from './components/ui/NewProjectModal.vue'
 import VersionHistoryModal from './components/ui/VersionHistoryModal.vue'
 import ShareProjectModal from './components/ui/ShareProjectModal.vue'
 import FoundationsCatalog from './components/ui-design/views/FoundationsCatalog.vue'
-import TemplateExplorer from './components/ui-design/views/TemplateExplorer.vue'
 import SharedProjectView from './components/ui-design/views/SharedProjectView.vue'
 import TokenInspectorModal from './components/ui-design/TokenInspectorModal.vue'
 import AccessGateView from './components/auth/AccessGateView.vue'
@@ -46,7 +46,7 @@ import { useDiagramStore } from './stores/diagramStore.js'
 
 const store = useDiagramStore()
 
-const currentView = ref('workspace') // 'workspace' | 'foundations' | 'templates' | 'shared'
+const currentView = ref('workspace') // 'workspace' | 'foundations' | 'shared'
 const isSidebarOpen = ref(true)
 const isChatOpen = ref(true)
 const isNewModalOpen = ref(false)
@@ -68,6 +68,90 @@ const activeFoundation = computed(() => {
 const currentVersionNumber = computed(() => {
   const versions = store.projectVersions.value || []
   return versions.length > 0 ? versions[0].version_number : 1
+})
+
+const formattedStreamTime = computed(() => {
+  const sec = store.uiStreamProgress.value?.elapsedSeconds || 0
+  const m = Math.floor(sec / 60).toString().padStart(2, '0')
+  const s = (sec % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
+})
+
+const streamDisplaySections = computed(() => {
+  const progress = store.uiStreamProgress.value || {}
+  const rawSections = progress.sections || []
+  const stage = progress.stage || 'idle'
+  const activeSection = progress.activeSection || ''
+
+  if (rawSections.length > 0) {
+    const activeIdx = rawSections.indexOf(activeSection)
+    if (activeIdx >= 0) {
+      return rawSections.map((s, idx) => {
+        const name = s.replace(/^sec-/, '').replace(/_/g, ' ')
+        let status = 'pending'
+        if (stage === 'complete') {
+          status = 'done'
+        } else if (idx < activeIdx) {
+          status = 'done'
+        } else if (idx === activeIdx) {
+          status = 'active'
+        }
+        return {
+          id: s,
+          label: name.charAt(0).toUpperCase() + name.slice(1),
+          status,
+        }
+      })
+    }
+
+    const list = rawSections.map((s, idx) => {
+      const name = s.replace(/^sec-/, '').replace(/_/g, ' ')
+      const isDone = stage === 'compiling' || stage === 'complete' || idx < rawSections.length - 1
+      const isCurrent = stage === 'generating' && idx === rawSections.length - 1
+      return {
+        id: s,
+        label: name.charAt(0).toUpperCase() + name.slice(1),
+        status: isDone ? 'done' : isCurrent ? 'active' : 'pending',
+      }
+    })
+
+    // Validasi & Penataan Kanvas only activates when token generation is complete
+    list.push({
+      id: 'canvas-assembly',
+      label: 'Validasi & Penataan Kanvas',
+      status: stage === 'complete' ? 'done' : stage === 'compiling' ? 'active' : 'pending',
+    })
+
+    return list
+  }
+
+  // Fallback before individual sections are parsed from stream
+  const tokens = progress.tokens || 0
+  const isAnalyzing = stage === 'analyzing' || (stage === 'generating' && tokens < 60)
+  const isGenerating = stage === 'generating' && tokens >= 60
+
+  return [
+    {
+      id: 'analyzing',
+      label: 'Analisis Kebutuhan & Arsitektur UI',
+      status: isAnalyzing ? 'active' : 'done',
+    },
+    {
+      id: 'layout',
+      label: 'Perancangan Struktur & Layout',
+      status: isGenerating ? 'active' : (isAnalyzing ? 'pending' : 'done'),
+    },
+    {
+      id: 'components',
+      label: 'Perakitan Komponen & Kode Tailwind',
+      status: stage === 'compiling' || stage === 'complete' ? 'done' : 'pending',
+    },
+    {
+      id: 'canvas-assembly',
+      label: 'Validasi & Penataan Kanvas',
+      status: stage === 'complete' ? 'done' : stage === 'compiling' ? 'active' : 'pending',
+    },
+  ]
 })
 
 const DIRECTION_MAP = {
@@ -166,14 +250,7 @@ function handleCreateWithFoundation(foundationId) {
 }
 
 async function handleSelectTemplate(template) {
-  let success = false
-  if (template._kind === 'ui_design') {
-    success = await store.startNewUiDesignProject({
-      templateId: template.id,
-    })
-  } else {
-    success = await store.startNewProject('', template.diagram_type, template.id)
-  }
+  const success = await store.startNewProject('', template.diagram_type, template.id)
   if (success) {
     currentView.value = 'workspace'
   }
@@ -207,7 +284,7 @@ async function handleCreateProject(payload) {
     await store.startNewUiDesignProject({
       prompt: payload.prompt,
       device: payload.device,
-      orchestrationMode: payload.orchestrationMode || 'crewai',
+      orchestrationMode: payload.orchestrationMode || 'fast',
       templateId: payload.templateId,
     })
   } else {
@@ -395,15 +472,7 @@ onMounted(async () => {
         />
       </div>
 
-      <!-- VIEW B: TEMPLATES EXPLORER -->
-      <div v-else-if="currentView === 'templates'" class="w-full h-full overflow-hidden bg-slate-950">
-        <TemplateExplorer
-          @use-template="handleSelectTemplate"
-          @preview-template="handleSelectTemplate"
-        />
-      </div>
-
-      <!-- VIEW C: ACTIVE WORKSPACE (Canvas + Sidebars) -->
+      <!-- VIEW B: ACTIVE WORKSPACE (Canvas + Sidebars) -->
       <div v-else class="flex w-full h-full overflow-hidden">
         <!-- LEFT SIDEBAR -->
         <ProjectSidebar
@@ -506,6 +575,91 @@ onMounted(async () => {
               :diagram-type="store.activeProject.value?.diagram_type"
             />
 
+            <!-- Multi-Screen / New Screen Generation Overlay on Existing Canvas -->
+            <div
+              v-if="store.hasDiagram.value && (store.isNewScreenGenerating?.value || (store.isGenerating?.value && store.uiStreamProgress?.value?.stage === 'generating'))"
+              class="pointer-events-none absolute inset-0 bg-slate-900/30 backdrop-blur-xs z-30 flex flex-col items-center justify-center select-none px-4 transition-all"
+            >
+              <div class="pointer-events-auto w-full max-w-md bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200/90 p-5 space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                <!-- Header: Badge & Live Timer -->
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-indigo-50 text-indigo-700 text-xs font-semibold border border-indigo-200/60">
+                    <span class="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></span>
+                    <span>Multi-Screen Synthesis</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60">
+                    <Clock class="w-3.5 h-3.5 text-slate-500" />
+                    <span>{{ formattedStreamTime }}</span>
+                  </div>
+                </div>
+
+                <!-- Current Action & Token Counter -->
+                <div class="space-y-1 text-left">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Loader2 class="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                      <span>{{ store.uiStreamProgress?.value?.message || 'Merancang screen baru di samping kanvas...' }}</span>
+                    </h4>
+                  </div>
+                  <div class="flex items-center justify-between text-xs text-slate-500 pt-0.5">
+                    <span>
+                      <span v-if="store.uiStreamProgress?.value?.tokens > 0" class="font-medium text-indigo-600">
+                        ⚡ {{ store.uiStreamProgress?.value?.tokens }} token terkompilasi
+                      </span>
+                      <span v-else>Menyelaraskan identitas brand & layout Screen 1...</span>
+                    </span>
+                    <span class="font-bold text-slate-700">{{ store.uiStreamProgress?.value?.progressPercent || 18 }}%</span>
+                  </div>
+                </div>
+
+                <!-- Smooth Animated Progress Bar -->
+                <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden relative">
+                  <div
+                    class="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-emerald-500 rounded-full transition-all duration-300"
+                    :style="{ width: `${store.uiStreamProgress?.value?.progressPercent || 18}%` }"
+                  ></div>
+                </div>
+
+                <!-- Live Section Checklist / Construction Status -->
+                <div class="bg-slate-50/80 rounded-xl p-3 border border-slate-200/60 text-left space-y-2">
+                  <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Proses Perakitan Screen Baru
+                  </div>
+                  <div class="space-y-1.5">
+                    <div
+                      v-for="(sec, idx) in streamDisplaySections"
+                      :key="idx"
+                      class="flex items-center justify-between text-xs py-1 px-2 rounded-lg transition-colors"
+                      :class="[
+                        sec.status === 'active' ? 'bg-indigo-50/80 text-indigo-900 font-semibold' :
+                        sec.status === 'done' ? 'text-slate-600' : 'text-slate-400'
+                      ]"
+                    >
+                      <div class="flex items-center gap-2">
+                        <CheckCircle2 v-if="sec.status === 'done'" class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <Loader2 v-else-if="sec.status === 'active'" class="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
+                        <span v-else class="w-3.5 h-3.5 rounded-full border border-slate-300 flex items-center justify-center text-[9px] text-slate-400 shrink-0">•</span>
+                        <span>{{ sec.label }}</span>
+                      </div>
+                      <span
+                        v-if="sec.status === 'active'"
+                        class="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5 rounded-md bg-indigo-100/70"
+                      >
+                        Sedang Dirakit
+                      </span>
+                      <span
+                        v-else-if="sec.status === 'done'"
+                        class="text-[10px] font-medium text-emerald-600"
+                      >
+                        Siap
+                      </span>
+                      <span v-else class="text-[10px] text-slate-400">Menunggu</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
             <!-- CrewAI Multi-Agent Generating Overlay on Canvas -->
             <div
               v-if="!store.hasDiagram.value && store.asyncJob?.isJobRunning?.value"
@@ -544,19 +698,88 @@ onMounted(async () => {
               </div>
             </div>
 
-            <!-- Loading State on Empty Canvas (Fast Track) -->
+            <!-- Loading State on Empty Canvas (Fast Track with Live SSE Streaming Feedback) -->
             <div
               v-else-if="!store.hasDiagram.value && store.isProjectGenerating?.value"
-              class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 select-none px-4"
+              class="pointer-events-none absolute inset-0 flex flex-col items-center justify-center select-none px-4"
             >
-              <div class="w-12 h-12 rounded-2xl bg-indigo-600/10 text-indigo-600 flex items-center justify-center animate-pulse border border-indigo-200/50">
-                <Loader2 class="w-6 h-6 animate-spin text-indigo-600" />
-              </div>
-              <div class="text-center">
-                <p class="text-sm font-bold text-slate-800">AI sedang merancang antarmuka...</p>
-                <p class="text-xs text-slate-500 mt-1 max-w-sm">
-                  Menyusun UX structure, token visual, dan komponen produksi langsung ke kanvas baru.
-                </p>
+              <div class="pointer-events-auto w-full max-w-md bg-white/95 backdrop-blur-md rounded-2xl shadow-2xl border border-slate-200/90 p-5 space-y-4">
+                <!-- Header: Badge & Live Timer -->
+                <div class="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div class="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-50 text-emerald-700 text-xs font-semibold border border-emerald-200/60">
+                    <span class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></span>
+                    <span>Live Stream Synthesis</span>
+                  </div>
+                  <div class="flex items-center gap-1.5 text-xs font-mono font-bold text-slate-700 bg-slate-100 px-2.5 py-1 rounded-lg border border-slate-200/60">
+                    <Clock class="w-3.5 h-3.5 text-slate-500" />
+                    <span>{{ formattedStreamTime }}</span>
+                  </div>
+                </div>
+
+                <!-- Current Action & Token Counter -->
+                <div class="space-y-1 text-left">
+                  <div class="flex items-center justify-between">
+                    <h4 class="text-sm font-bold text-slate-800 flex items-center gap-2">
+                      <Loader2 class="w-4 h-4 animate-spin text-indigo-600 shrink-0" />
+                      <span>{{ store.uiStreamProgress?.value?.message || 'Merancang antarmuka...' }}</span>
+                    </h4>
+                  </div>
+                  <div class="flex items-center justify-between text-xs text-slate-500 pt-0.5">
+                    <span>
+                      <span v-if="store.uiStreamProgress?.value?.tokens > 0" class="font-medium text-indigo-600">
+                        ⚡ {{ store.uiStreamProgress?.value?.tokens }} token terkompilasi
+                      </span>
+                      <span v-else>Membedah instruksi & tata letak UI...</span>
+                    </span>
+                    <span class="font-bold text-slate-700">{{ store.uiStreamProgress?.value?.progressPercent || 15 }}%</span>
+                  </div>
+                </div>
+
+                <!-- Smooth Animated Progress Bar -->
+                <div class="w-full bg-slate-100 rounded-full h-2 overflow-hidden relative">
+                  <div
+                    class="h-full bg-gradient-to-r from-indigo-500 via-indigo-600 to-emerald-500 rounded-full transition-all duration-300"
+                    :style="{ width: `${store.uiStreamProgress?.value?.progressPercent || 15}%` }"
+                  ></div>
+                </div>
+
+                <!-- Live Section Checklist / Construction Status -->
+                <div class="bg-slate-50/80 rounded-xl p-3 border border-slate-200/60 text-left space-y-2">
+                  <div class="text-[11px] font-bold uppercase tracking-wider text-slate-400">
+                    Seksi Sedang Dibuat
+                  </div>
+                  <div class="space-y-1.5">
+                    <div
+                      v-for="(sec, idx) in streamDisplaySections"
+                      :key="idx"
+                      class="flex items-center justify-between text-xs py-1 px-2 rounded-lg transition-colors"
+                      :class="[
+                        sec.status === 'active' ? 'bg-indigo-50/80 text-indigo-900 font-semibold' :
+                        sec.status === 'done' ? 'text-slate-600' : 'text-slate-400'
+                      ]"
+                    >
+                      <div class="flex items-center gap-2">
+                        <CheckCircle2 v-if="sec.status === 'done'" class="w-3.5 h-3.5 text-emerald-600 shrink-0" />
+                        <Loader2 v-else-if="sec.status === 'active'" class="w-3.5 h-3.5 text-indigo-600 animate-spin shrink-0" />
+                        <span v-else class="w-3.5 h-3.5 rounded-full border border-slate-300 flex items-center justify-center text-[9px] text-slate-400 shrink-0">•</span>
+                        <span>{{ sec.label }}</span>
+                      </div>
+                      <span
+                        v-if="sec.status === 'active'"
+                        class="text-[10px] font-bold text-indigo-600 px-1.5 py-0.5 rounded-md bg-indigo-100/70"
+                      >
+                        Sedang Dirakit
+                      </span>
+                      <span
+                        v-else-if="sec.status === 'done'"
+                        class="text-[10px] font-medium text-emerald-600"
+                      >
+                        Siap
+                      </span>
+                      <span v-else class="text-[10px] text-slate-400">Menunggu</span>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
 
@@ -692,20 +915,13 @@ onMounted(async () => {
                   <span>Dialog Lengkap</span>
                 </button>
                 <button
+                  v-if="store.canGenerateUI.value"
                   type="button"
                   @click="currentView = 'foundations'"
-                  class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
+                  class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg shadow-2xs transition-all flex items-center gap-1.5 cursor-pointer"
                 >
                   <Layers class="w-3.5 h-3.5 text-indigo-600" />
                   <span>Pilih Fondasi</span>
-                </button>
-                <button
-                  type="button"
-                  @click="currentView = 'templates'"
-                  class="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 border border-slate-200 text-xs font-semibold rounded-lg shadow-2xs transition-all flex items-center gap-1.5"
-                >
-                  <BookOpen class="w-3.5 h-3.5 text-indigo-600" />
-                  <span>Gunakan Template</span>
                 </button>
               </div>
             </div>

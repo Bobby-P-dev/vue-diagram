@@ -88,6 +88,12 @@ watch(
 watch(
   () => store.selectedTarget?.value,
   (target) => {
+    if (selectedScope.value === 'new_screen') {
+      if (target?.id) {
+        selectedScope.value = target?.type === 'section' ? 'section' : 'component'
+      }
+      return
+    }
     if (target?.type === 'section') {
       selectedScope.value = 'section'
     } else if (target?.id) {
@@ -117,6 +123,15 @@ async function handleSendMessage(customPrompt = null) {
     } else {
       await store.startNewProject(text, initialDiagramType.value)
     }
+    return
+  }
+
+  if (selectedScope.value === 'new_screen') {
+    await store.sendFollowUpChat(text, null, {
+      scope: 'new_screen',
+      target: { type: 'page', property: 'new_page' },
+      selectionContext: { scope: 'new_screen' }
+    })
     return
   }
 
@@ -275,6 +290,32 @@ function handleKeyDown(e) {
         </button>
       </div>
 
+      <!-- New Screen Mode Indicator -->
+      <div
+        v-else-if="selectedScope === 'new_screen'"
+        class="mb-2 px-2.5 py-1.5 rounded-lg bg-emerald-50 border border-emerald-200 text-emerald-900 text-xs flex items-center justify-between shadow-2xs animate-fade-in"
+      >
+        <div class="flex items-center gap-2 min-w-0">
+          <span class="w-2 h-2 rounded-full bg-emerald-600 animate-pulse flex-shrink-0"></span>
+          <div class="min-w-0">
+            <div class="flex items-center gap-1.5 text-[10px] font-bold text-emerald-700 uppercase tracking-wider">
+              <span>Mode: Tambah Screen / Halaman Baru</span>
+            </div>
+            <p class="text-[10px] text-emerald-600 truncate mt-0.5">
+              AI akan membuat artboard baru di kanvas dengan Header & Footer seragam Screen 1.
+            </p>
+          </div>
+        </div>
+        <button
+          type="button"
+          @click="selectedScope = 'screen'"
+          class="p-0.5 rounded text-emerald-500 hover:text-emerald-800 hover:bg-emerald-100 transition-colors flex-shrink-0"
+          title="Kembali ke Entire Screen"
+        >
+          <X class="w-3.5 h-3.5" />
+        </button>
+      </div>
+
       <!-- Initial Generation Mode Switcher (When Canvas is Empty) -->
       <div v-if="!store.activeProject.value?.id" class="flex items-center justify-between mb-2 text-xs">
         <div class="flex items-center gap-1 bg-slate-100 rounded-lg p-0.5 text-[11px] font-semibold text-slate-600">
@@ -336,12 +377,23 @@ function handleKeyDown(e) {
 
       <!-- Context Scope Selector (When Active Project Exists) -->
       <div v-else class="flex items-center justify-between mb-2 text-[10px] text-slate-500">
-        <div class="flex items-center gap-1">
+        <div class="flex items-center gap-1 flex-wrap">
           <span class="font-medium text-slate-600">Scope:</span>
+          <button
+            v-if="isUiMode"
+            type="button"
+            @click="selectedScope = 'new_screen'; store.clearSelectedTarget()"
+            class="px-2 py-0.5 rounded-md text-[10px] font-bold transition-all flex items-center gap-1 cursor-pointer"
+            :class="selectedScope === 'new_screen' ? 'bg-emerald-600 text-white shadow-2xs' : 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'"
+            title="Buat screen / halaman baru terpisah di kanvas"
+          >
+            <span>+ Screen Baru</span>
+          </button>
+          <span v-if="isUiMode">•</span>
           <button
             type="button"
             @click="selectedScope = 'screen'"
-            class="px-1.5 py-0.5 rounded transition-colors"
+            class="px-1.5 py-0.5 rounded transition-colors cursor-pointer"
             :class="selectedScope === 'screen' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-400 hover:text-slate-600'"
           >
             Entire Screen
@@ -350,7 +402,7 @@ function handleKeyDown(e) {
           <button
             type="button"
             @click="selectedScope = 'section'"
-            class="px-1.5 py-0.5 rounded transition-colors"
+            class="px-1.5 py-0.5 rounded transition-colors cursor-pointer"
             :class="selectedScope === 'section' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-400 hover:text-slate-600'"
           >
             Section
@@ -359,13 +411,13 @@ function handleKeyDown(e) {
           <button
             type="button"
             @click="selectedScope = 'component'"
-            class="px-1.5 py-0.5 rounded transition-colors"
+            class="px-1.5 py-0.5 rounded transition-colors cursor-pointer"
             :class="selectedScope === 'component' ? 'bg-indigo-50 text-indigo-700 font-semibold' : 'text-slate-400 hover:text-slate-600'"
           >
             Component
           </button>
         </div>
-        <span class="font-mono text-slate-400">Shift+Enter new line</span>
+        <span class="font-mono text-slate-400 hidden xl:inline">Shift+Enter</span>
       </div>
 
       <!-- Textarea Box -->
@@ -376,7 +428,9 @@ function handleKeyDown(e) {
           :placeholder="
             !store.activeProject.value?.id
               ? (initialMode === 'ui_design' ? 'Ketik ide antarmuka untuk generate UI baru...' : 'Ketik alur sistem untuk generate diagram baru...')
-              : (isUiMode ? 'Tulis prompt bebas untuk UI atau section baru...' : 'Ketik revisi diagram...')
+              : (selectedScope === 'new_screen'
+                  ? 'Ketik ide/nama screen baru (misal: Halaman Timeline Proyek, Screen Detail Tugas)...'
+                  : (isUiMode ? 'Tulis prompt bebas untuk UI atau section baru...' : 'Ketik revisi diagram...'))
           "
           rows="3"
           class="w-full resize-none bg-transparent px-3 py-2 text-xs text-slate-800 placeholder-slate-400 focus:outline-hidden"
