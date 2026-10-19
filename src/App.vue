@@ -284,6 +284,9 @@ async function handleCreateProject(payload) {
     await store.startNewUiDesignProject({
       prompt: payload.prompt,
       device: payload.device,
+      foundation: payload.foundation || null,
+      themeMode: payload.themeMode || null,
+      accentColor: payload.accentColor || null,
       orchestrationMode: payload.orchestrationMode || 'fast',
       templateId: payload.templateId,
     })

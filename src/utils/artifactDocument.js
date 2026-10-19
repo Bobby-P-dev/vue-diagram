@@ -21,20 +21,32 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
 
   // Low-priority defaults: authored styles and utility classes always win.
   const defaults = doc.createElement('style')
-  defaults.textContent = '@layer artifact-defaults { body { margin: 0; min-height: 100vh; } }'
+  defaults.textContent = '@layer artifact-defaults { html { scroll-behavior: smooth; } body { margin: 0; min-height: 100vh; text-rendering: optimizeLegibility; -webkit-font-smoothing: antialiased; } .canvas-dot-grid { background-image: radial-gradient(rgba(148, 163, 184, 0.25) 1px, transparent 1px); background-size: 20px 20px; } @keyframes rl-float { 0%, 100% { transform: translateY(0px); } 50% { transform: translateY(-6px); } } @keyframes rl-pulse-subtle { 0%, 100% { opacity: 1; } 50% { opacity: 0.65; } } .animate-float { animation: rl-float 5s ease-in-out infinite; } .animate-pulse-subtle { animation: rl-pulse-subtle 3s ease-in-out infinite; } }'
   doc.head.prepend(defaults)
 
-  // Inject an authored font (only if the design explicitly declares one and it is
-  // not already referenced). Do NOT force Plus Jakarta/Playfair onto every design:
-  // when no font family is requested, the backend's Tailwind font-sans/font-serif
-  // resolve to the platform system stack, which preserves the intended look instead
-  // of imposing an unrequested visual identity.
+  // Inject authored fonts (only if the design explicitly declares them and they are
+  // not already referenced). When no font family is requested, fall back to the
+  // platform system stack so bare fragments stay untouched.
   const declaredFontFamily =
     theme.fontFamily ||
     theme.typography?.primary ||
     null
+  const declaredHeadingFont =
+    theme.headingFont ||
+    theme.typography?.heading ||
+    null
+  const declaredMonoFont =
+    theme.monoFont ||
+    theme.typography?.mono ||
+    null
+
+  const requestedGoogleFonts = [declaredFontFamily, declaredHeadingFont, declaredMonoFont]
+    .filter(f => typeof f === 'string' && f.trim().length > 0 && !/[<>"{}|\\^` + "`" + `]/.test(f))
+    .map(f => f.trim())
+  const uniqueRequestedFonts = [...new Set(requestedGoogleFonts)]
+
   const alreadyHasGoogleFonts = !!doc.querySelector('link[href*="fonts.googleapis.com"]')
-  if (declaredFontFamily && !alreadyHasGoogleFonts && !doc.querySelector('style[data-artifact-default-font]')) {
+  if (uniqueRequestedFonts.length > 0 && !alreadyHasGoogleFonts && !doc.querySelector('style[data-artifact-default-font]')) {
     const preconnect1 = doc.createElement('link')
     preconnect1.rel = 'preconnect'
     preconnect1.href = 'https://fonts.googleapis.com'
@@ -44,7 +56,10 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
     preconnect2.crossOrigin = 'anonymous'
     const fontLink = doc.createElement('link')
     fontLink.rel = 'stylesheet'
-    fontLink.href = 'https://fonts.googleapis.com/css2?family=' + encodeURIComponent(declaredFontFamily.replace(/ /g, '+'))
+    const familyParams = uniqueRequestedFonts
+      .map(f => 'family=' + encodeURIComponent(f).replace(/%20/g, '+') + ':ital,wght@0,400;0,500;0,600;0,700;1,400')
+      .join('&')
+    fontLink.href = 'https://fonts.googleapis.com/css2?' + familyParams + '&display=swap'
     doc.head.append(preconnect1, preconnect2, fontLink)
   }
 
@@ -61,7 +76,14 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
   const hasConfig = [...doc.scripts].some(script => /tailwind\.config\s*=/.test(script.textContent))
   if (!hasConfig && !doc.querySelector('script[src*="@tailwindcss/browser"]')) {
     const config = doc.createElement('script')
-    const colors = theme.primary ? { brand: theme.primary, primary: theme.primary } : {}
+    const colors = {}
+    if (theme.primary) {
+      colors.brand = theme.primary
+      colors.primary = theme.primary
+    }
+    if (theme.accent) {
+      colors.accent = theme.accent
+    }
 
     // Extract authored Google Fonts from link or style tags to prevent Tailwind Preflight font reset
     const fontSources = [
@@ -78,21 +100,29 @@ export function buildArtifactDocument({ html, css = '', theme = {}, editorStyles
 
     const fontFamily = {}
     for (const font of detectedFonts) {
-      const isSerif = /serif|playfair|merriweather|lora|literata|cinzel|bodoni|garamond/i.test(font)
-      if (isSerif && !fontFamily.serif) {
-        fontFamily.serif = [font, 'serif']
+      const isSerif = /serif|playfair|merriweather|lora|literata|cinzel|bodoni|garamond|fraunces/i.test(font)
+      const isMono = /mono|jetbrains|fira|consolas|courier/i.test(font)
+      if (isMono && !fontFamily.mono) {
+        fontFamily.mono = [font, 'ui-monospace', 'monospace']
+      } else if (isSerif && !fontFamily.serif) {
+        fontFamily.serif = [font, 'Georgia', 'serif']
       } else if (!fontFamily.sans) {
-        fontFamily.sans = [font, 'sans-serif']
+        fontFamily.sans = [font, 'system-ui', 'sans-serif']
       }
     }
-    // Only apply font families actually authored by the design (from HTML link/style
-    // tags or an explicit theme fontFamily/typography.primary). When none is declared,
-    // fall back to the platform system stack so Tailwind font-sans/font-serif render
-    // the backend's intended system-font look — nothing is forced in.
-    if (theme.fontFamily && !fontFamily.sans) {
-      fontFamily.sans = [theme.fontFamily, 'system-ui', 'sans-serif']
-    } else if (theme.typography?.primary && !fontFamily.sans) {
-      fontFamily.sans = [theme.typography.primary, 'system-ui', 'sans-serif']
+    // Apply explicit theme font families if declared
+    if (declaredFontFamily && !fontFamily.sans) {
+      fontFamily.sans = [declaredFontFamily, 'system-ui', 'sans-serif']
+    }
+    if (declaredHeadingFont) {
+      const isHeadingSerif = /serif|playfair|merriweather|lora|literata|cinzel|bodoni|garamond|fraunces/i.test(declaredHeadingFont)
+      if (isHeadingSerif) {
+        fontFamily.serif = [declaredHeadingFont, 'Georgia', 'serif']
+      }
+      fontFamily.display = [declaredHeadingFont, 'system-ui', 'sans-serif']
+    }
+    if (declaredMonoFont && !fontFamily.mono) {
+      fontFamily.mono = [declaredMonoFont, 'ui-monospace', 'SFMono-Regular', 'monospace']
     }
 
     if (!fontFamily.sans) {

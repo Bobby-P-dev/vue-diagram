@@ -70,6 +70,7 @@ export function normalizeEdges(rawEdges = []) {
       source: String(edge.source),
       target: String(edge.target),
       sourceHandle: edge.sourceHandle ?? edge.source_handle ?? undefined,
+      targetHandle: edge.targetHandle ?? edge.target_handle ?? undefined,
       label: edge.label ?? '',
       type: edge.type || 'smoothstep',
       animated: Boolean(edge.animated),
@@ -668,6 +669,29 @@ export function useDiagramStore() {
               chars: evtData.chars || uiStreamProgress.value.chars,
               sections: rawSections.length > 0 ? rawSections : uiStreamProgress.value.sections,
               activeSection: evtData.active_section || uiStreamProgress.value.activeSection,
+            }
+            if (evtData.preview_html && typeof evtData.preview_html === 'string') {
+              const previewWidth = device === 'mobile' ? 375 : device === 'desktop' ? 1100 : 1024
+              const previewHeight = device === 'mobile' ? 812 : device === 'desktop' ? 740 : 720
+              nodes.value = [
+                {
+                  id: 'ui-frame-1',
+                  type: 'ui_frame',
+                  position: { x: 60, y: 60 },
+                  data: {
+                    device,
+                    title: activeProject.value?.title || 'Live Preview...',
+                    width: previewWidth,
+                    height: previewHeight,
+                    theme: { mode: themeMode || 'dark', primary: accentColor || '#6366f1' },
+                    raw_html: evtData.preview_html,
+                    rawHtml: evtData.preview_html,
+                    code_export: { html: evtData.preview_html },
+                    implementation: { source: { html: evtData.preview_html } },
+                    isStreamingPreview: true,
+                  },
+                },
+              ]
             }
           } else if (event === 'complete') {
             uiStreamProgress.value = {

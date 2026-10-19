@@ -55,9 +55,12 @@ const canGenerateUI = computed(() => store.canGenerateUI.value)
 // Tab state: 'ui_design' | 'diagram' | 'templates'
 const activeTab = ref('ui_design')
 
-// UI Design State (Clean & Essential - Thin Client)
+// UI Design State (Clean & Essential - with Aesthetic Foundation & Theme Controls)
 const uiPrompt = ref('')
 const uiDevice = ref('web') // 'web' | 'mobile' | 'desktop'
+const uiFoundation = ref('auto') // 'auto' | 'ramp' | 'calcom' | 'raycast' | 'railway' | 'attio' | 'mintlify'
+const uiThemeMode = ref('auto') // 'auto' | 'light' | 'dark'
+const uiAccentColor = ref('') // optional hex override
 const uiOrchestrationMode = ref('fast') // 'fast' | 'crewai'
 
 // Diagram State
@@ -92,7 +95,31 @@ const UI_DEVICES = [
   },
 ]
 
+const UI_FOUNDATIONS = [
+  { value: 'auto', label: 'Auto (Smart)', desc: 'Sesuaikan otomatis dengan konteks', swatch: 'bg-gradient-to-br from-indigo-500 to-emerald-500' },
+  { value: 'ramp', label: 'Ramp Clean', desc: 'FinTech & SaaS presisi', swatch: 'bg-slate-900' },
+  { value: 'attio', label: 'Attio Fluid', desc: 'CRM & ERP data-dense', swatch: 'bg-blue-600' },
+  { value: 'calcom', label: 'Cal Editorial', desc: 'Warm minimal & serif craft', swatch: 'bg-stone-800' },
+  { value: 'raycast', label: 'Raycast Dark', desc: 'Obsidian keyboard-first', swatch: 'bg-rose-500' },
+  { value: 'railway', label: 'Railway Infra', desc: 'DevOps & telemetry dark', swatch: 'bg-violet-600' },
+  { value: 'mintlify', label: 'Mintlify Crisp', desc: 'Docs & healthcare emerald', swatch: 'bg-emerald-600' },
+]
 
+const UI_THEME_MODES = [
+  { value: 'auto', label: 'Auto' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+]
+
+const UI_ACCENT_SWATCHES = [
+  { value: '', label: 'Auto', color: 'transparent' },
+  { value: '#4F46E5', label: 'Indigo', color: '#4F46E5' },
+  { value: '#0D9488', label: 'Teal', color: '#0D9488' },
+  { value: '#2563EB', label: 'Blue', color: '#2563EB' },
+  { value: '#D97706', label: 'Amber', color: '#D97706' },
+  { value: '#E11D48', label: 'Rose', color: '#E11D48' },
+  { value: '#111827', label: 'Obsidian', color: '#111827' },
+]
 
 const QUICK_CHIPS = [
   { icon: '🛍️', text: 'buat landing page ecommerce elegant modern' },
@@ -258,6 +285,9 @@ watch(
       uiPrompt.value = ''
       diagramType.value = 'flowchart'
       uiDevice.value = 'web'
+      uiFoundation.value = 'auto'
+      uiThemeMode.value = 'auto'
+      uiAccentColor.value = ''
       uiOrchestrationMode.value = 'fast'
       templateSearch.value = ''
       selectedCategory.value = 'All'
@@ -287,11 +317,17 @@ function handleSubmitUiDesign() {
   const submittedPrompt = uiPrompt.value.trim()
   const dev = uiDevice.value
   const orchMode = uiOrchestrationMode.value
+  const fnd = uiFoundation.value !== 'auto' ? uiFoundation.value : null
+  const tMode = uiThemeMode.value !== 'auto' ? uiThemeMode.value : null
+  const acc = uiAccentColor.value || null
   uiPrompt.value = ''
   emit('create', {
     mode: 'ui_design',
     prompt: submittedPrompt,
     device: dev,
+    foundation: fnd,
+    themeMode: tMode,
+    accentColor: acc,
     orchestrationMode: orchMode,
   })
 }
@@ -412,7 +448,7 @@ function handleClose() {
         </button>
       </div>
 
-      <!-- ==================== TAB 1: UI DESIGN CANVAS (PROMPT-FIRST THIN CLIENT) ==================== -->
+      <!-- ==================== TAB 1: UI DESIGN CANVAS ==================== -->
       <div v-if="activeTab === 'ui_design'" class="overflow-y-auto p-5 space-y-4 flex-1">
         <form @submit.prevent="handleSubmitUiDesign" class="space-y-4">
           <!-- Primary: Prompt Input -->
@@ -433,10 +469,10 @@ function handleClose() {
             </div>
             <textarea
               v-model="uiPrompt"
-              rows="4"
+              rows="3"
               :disabled="isLoading"
               placeholder="Contoh: buatkan landing page ecommerce yang elegant dan modern, atau buat dashboard ERP procurement professional..."
-              class="w-full rounded-xl border border-slate-300 p-3.5 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none leading-relaxed transition-all shadow-inner bg-white"
+              class="w-full rounded-xl border border-slate-300 p-3 text-xs sm:text-sm text-slate-800 placeholder-slate-400 focus:outline-hidden focus:ring-2 focus:ring-indigo-500 focus:border-transparent resize-none leading-relaxed transition-all shadow-inner bg-white"
             ></textarea>
 
             <!-- Quick Suggestions Chips -->
@@ -451,6 +487,71 @@ function handleClose() {
               >
                 <span>{{ chip.icon }}</span>
                 <span class="truncate max-w-[240px] font-medium">{{ chip.text }}</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Aesthetic Foundation & Theme Direction -->
+          <div class="space-y-2.5 pt-1 border-t border-slate-100">
+            <div class="flex items-center justify-between gap-2">
+              <label class="block text-[11px] font-bold text-slate-700 uppercase tracking-wider">
+                Design System Foundation
+              </label>
+              <!-- Theme Mode + Accent Swatches -->
+              <div class="flex items-center gap-2">
+                <div class="inline-flex rounded-lg border border-slate-200 p-0.5 bg-slate-50">
+                  <button
+                    v-for="tm in UI_THEME_MODES"
+                    :key="tm.value"
+                    type="button"
+                    @click="uiThemeMode = tm.value"
+                    :class="[
+                      'px-2 py-0.5 text-[10px] font-semibold rounded-md transition-all cursor-pointer',
+                      uiThemeMode === tm.value
+                        ? 'bg-indigo-600 text-white shadow-2xs'
+                        : 'text-slate-500 hover:text-slate-800'
+                    ]"
+                  >
+                    {{ tm.label }}
+                  </button>
+                </div>
+                <div class="flex items-center gap-1">
+                  <button
+                    v-for="sw in UI_ACCENT_SWATCHES"
+                    :key="sw.label"
+                    type="button"
+                    @click="uiAccentColor = sw.value"
+                    :title="`Aksen: ${sw.label}`"
+                    :class="[
+                      'w-4 h-4 rounded-full border transition-transform cursor-pointer flex items-center justify-center',
+                      uiAccentColor === sw.value ? 'scale-115 ring-2 ring-indigo-500 ring-offset-1 border-white' : 'border-slate-300 opacity-75 hover:opacity-100'
+                    ]"
+                    :style="sw.value ? { backgroundColor: sw.color } : {}"
+                  >
+                    <span v-if="!sw.value" class="text-[8px] font-bold text-slate-500">A</span>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div class="grid grid-cols-2 sm:grid-cols-4 gap-1.5">
+              <button
+                v-for="f in UI_FOUNDATIONS"
+                :key="f.value"
+                type="button"
+                @click="uiFoundation = f.value"
+                :class="[
+                  'p-2 rounded-xl border text-left transition-all flex flex-col gap-0.5 cursor-pointer',
+                  uiFoundation === f.value
+                    ? 'border-indigo-600 bg-indigo-50/70 text-indigo-900 ring-1 ring-indigo-500/25 shadow-2xs'
+                    : 'border-slate-200 hover:border-slate-300 text-slate-700 bg-slate-50/40 hover:bg-slate-50'
+                ]"
+              >
+                <div class="flex items-center gap-1.5">
+                  <span class="w-2.5 h-2.5 rounded-full flex-shrink-0" :class="f.swatch"></span>
+                  <span class="text-[11px] font-bold truncate">{{ f.label }}</span>
+                </div>
+                <span class="text-[9px] text-slate-400 truncate leading-tight">{{ f.desc }}</span>
               </button>
             </div>
           </div>
